@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="BusinessLogic/BusinessLogic.csproj" Id="1aeaa6cc-8fcb-4d8f-a32b-53a680342e68" />
   <Project Path="DAL/DAL.csproj" />
 </Solution>
