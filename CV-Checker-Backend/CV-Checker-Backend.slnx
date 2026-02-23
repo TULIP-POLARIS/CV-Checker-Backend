@@ -1,4 +1,3 @@
 <Solution>
-  <Project Path="CV-Checker-Backend/PRESENTATIONBE.csproj" />
   <Project Path="DAL/DAL.csproj" />
 </Solution>
