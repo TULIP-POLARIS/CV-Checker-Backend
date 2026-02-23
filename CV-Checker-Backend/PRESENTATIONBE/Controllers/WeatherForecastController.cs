@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 
-namespace CV_Checker_Backend.Controllers
+namespace PRESENTATIONBE.Controllers
 {
     [ApiController]
     [Route("[controller]")]
