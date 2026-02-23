@@ -1,4 +1,3 @@
 <Solution>
   <Project Path="DAL/DAL.csproj" />
-  <Project Path="PRESENTATIONBE/PRESENTATIONBE.csproj" Id="f4a79949-ed66-4430-9b58-d40484f686d1" />
 </Solution>
