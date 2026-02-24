@@ -1,7 +1,7 @@
 using Microsoft.Data.SqlClient;
 
 namespace DAL;
-D
+
 public sealed class SqlConnectionFactory : ISqlConnectionFactory
 {
     private readonly string _connectionString;
