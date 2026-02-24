@@ -2,7 +2,7 @@ using DAL;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 
-namespace BusinessLogic.Controllers;
+namespace ControllersLayer.Controllers;
 
 [ApiController]
 [Route("api/health")]
