@@ -7,9 +7,10 @@ namespace DAL.Repository
 {
     public interface IUserService
     {
-        Task<UserResponseDto> GetByIdAsync(Guid id);
-        Task<UserResponseDto> CreateAsync(CreateUserRequestDto dto);
-        Task<UserResponseDto> UpdateAsync(Guid id, UpdateUserRequestDto dto);
-        Task DeleteAsync(Guid id);
+    //    Task<UserResponseDto> GetByIdAsync(Guid id);
+    //    Task<UserResponseDto> CreateAsync(CreateUserRequestDto dto);
+    //    Task<UserResponseDto> UpdateAsync(Guid id, UpdateUserRequestDto dto);
+    //    Task DeleteAsync(Guid id);
+    //
     }
 }
