@@ -6,7 +6,7 @@ using System.BusinessLogic.Entities;
 
 namespace DAL.Interface
 {
-    public class IUserRepository
+    public interface IUserRepository
     {
         Task<User> GetByIdAsync(int id);
         Task<User> GetByEmailAsync(string email);
