@@ -1,7 +1,12 @@
+using Microsoft.EntityFrameworkCore;
+using BusinessLogic;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
+builder.Services.AddDbContext<ApiContext>(options =>
+    options.UseInMemoryDatabase("cvmatchdb"));
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();

@@ -16,7 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DAL\DAL.csproj" />
-    <ProjectReference Include="..\ControllersLayer\ControllersLayer.csproj" />
+    <ProjectReference Include="..\ControllersLayer\BusinessLogic.csproj" />
   </ItemGroup>
 
 </Project>
