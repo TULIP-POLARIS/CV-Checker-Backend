@@ -1,6 +1,5 @@
 ﻿using BusinessLogic.Entities;
 using Microsoft.EntityFrameworkCore;
-using BusinessLogic.Entities;
 
 namespace CVApi
 {

@@ -1,5 +1,5 @@
 <Solution>
-  <Project Path="BusinessLogic/CVApi.csproj" Id="1aeaa6cc-8fcb-4d8f-a32b-53a680342e68" />
-  <Project Path="ControllersLayer/BusinessLogic.csproj" Id="e5a31a5e-26a0-43ee-bffa-7d7e220b52d6" />
+  <Project Path="BusinessLayer/BusinessLogic.csproj" />
+  <Project Path="CVApi/CVApi.csproj" />
   <Project Path="DAL/DAL.csproj" />
 </Solution>
