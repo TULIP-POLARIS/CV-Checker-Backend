@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
-using System.BusinessLogic.Entities;
+using BusinessLogic.Entities;
 using DAL.Interface;
 using Microsoft.EntityFrameworkCore;
 
