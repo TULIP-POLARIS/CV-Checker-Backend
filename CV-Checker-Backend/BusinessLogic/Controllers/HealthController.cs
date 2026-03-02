@@ -2,7 +2,7 @@ using DAL;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 
-namespace ControllersLayer.Controllers;
+namespace CVApi.Controllers;
 
 [ApiController]
 [Route("api/health")]

@@ -2,7 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using BusinessLogic.Entities;
 
-namespace BusinessLogic
+namespace CVApi
 {
     public class ApiContext : DbContext
     {
