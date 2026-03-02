@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using BusinessLogic;
+using CVApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
