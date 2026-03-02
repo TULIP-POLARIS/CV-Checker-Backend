@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace DAL.Repository
 {
-    public interface IUserService
+    public class UserRepository : IUserRepository
     {
     //    Task<UserResponseDto> GetByIdAsync(Guid id);
     //    Task<UserResponseDto> CreateAsync(CreateUserRequestDto dto);
