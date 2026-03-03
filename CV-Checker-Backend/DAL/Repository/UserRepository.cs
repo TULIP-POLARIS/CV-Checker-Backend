@@ -18,7 +18,7 @@ namespace DAL.Repository
             _db = db;
         }
 
-        public async Task<User?> GetByIdAsync(int id)
+        public async Task<User?> GetByIdAsync(Guid id)
         {
             return await _db.Users.FirstOrDefaultAsync(u => u.Id == id);
         }
