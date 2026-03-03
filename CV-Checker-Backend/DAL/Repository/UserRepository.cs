@@ -2,7 +2,8 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
-using BusinessLogic.Entities;
+using Domain.Entities;
+using DAL.Api;
 using DAL.Interface;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,9 +11,9 @@ namespace DAL.Repository
 {
     public class UserRepository : IUserRepository
     {
-        private readonly AppDbContext _db;
+        private readonly ApiContext _db;
 
-        public UserRepository(AppDbContext db)
+        public UserRepository(ApiContext db)
         {
             _db = db;
         }
