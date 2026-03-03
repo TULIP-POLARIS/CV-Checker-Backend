@@ -1,7 +1,7 @@
-﻿using BusinessLogic.Entities;
+﻿using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
-namespace CVApi
+namespace DAL.Api
 {
     public class ApiContext : DbContext
     {

@@ -2,4 +2,5 @@
   <Project Path="BusinessLayer/BusinessLogic.csproj" />
   <Project Path="CVApi/CVApi.csproj" />
   <Project Path="DAL/DAL.csproj" />
+  <Project Path="Domain/Domain.csproj" Id="b393b88b-110c-4ca8-98e2-6d24fbe035de" />
 </Solution>

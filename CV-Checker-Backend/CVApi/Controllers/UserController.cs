@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using BusinessLogic.Entities;
+using Domain.Entities;
+using DAL.Api;
 using BusinessLogic;
 
 namespace CVApi.Controllers
