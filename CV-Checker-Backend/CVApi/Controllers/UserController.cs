@@ -6,7 +6,7 @@ using BusinessLogic;
 
 namespace CVApi.Controllers
 {
-    [Route("api/[controller]")]
+    [Route("api/users")]
     [ApiController]
     public class UserController : ControllerBase
     {
@@ -31,6 +31,19 @@ namespace CVApi.Controllers
             _context.Users.Add(newUser);
             _context.SaveChanges();
             return new JsonResult(Ok(newUser));
+        }
+
+        // Get a user by ID
+
+        [HttpGet("user")]
+        public JsonResult GetUserById(Guid id)
+        {
+            var user = _context.Users.Find(id);
+            if (user == null)
+            {
+                return new JsonResult(NotFound());
+            }
+            return new JsonResult(Ok(user));
         }
     }
 }
