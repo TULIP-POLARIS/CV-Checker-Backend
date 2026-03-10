@@ -35,7 +35,7 @@ namespace CVApi.Controllers
 
         // Get a user by ID
 
-        [HttpGet("user")]
+        [HttpGet]
         public JsonResult GetUserById(Guid id)
         {
             var user = _context.Users.Find(id);
