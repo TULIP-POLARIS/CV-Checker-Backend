@@ -1,7 +1,11 @@
-using Microsoft.EntityFrameworkCore;
 using BusinessLogic;
+using BusinessLogic.Interface;
+using BusinessLogic.Services;
 using CVApi;
 using DAL.Api;
+using DAL.Interface;
+using DAL.Repository;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +20,16 @@ builder.Services.AddDbContext<ApiContext>(options =>
 builder.Services.AddControllers();
 
 builder.Services.AddOpenApi();
+
+// Repositories
+builder.Services.AddScoped<ICVRepository, CVRepository>();
+builder.Services.AddScoped<IJobOfferRepository, JobOfferRepository>();
+builder.Services.AddScoped<ICVComparisonRepository, CVComparisonRepository>();
+
+// Services
+builder.Services.AddScoped<ICVService, CVService>();
+builder.Services.AddScoped<IJobOfferService, JobOfferService>();
+builder.Services.AddScoped<ICVComparisonService, CVComparisonService>();
 
 var cvMatchDbConnectionString = builder.Configuration.GetConnectionString("CvMatchDb");
 if (string.IsNullOrWhiteSpace(cvMatchDbConnectionString))

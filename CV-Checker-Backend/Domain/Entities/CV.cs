@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,11 +12,14 @@ namespace Domain.Entities
     {
         public Guid Id { get; set; } = Guid.NewGuid();
 
-        public Guid OwnerUserId { get; set; }
-        public string Title { get; set; } = default!;
+        public Guid UserId { get; set; }
 
-        public Guid? SourceFileId { get; set; }
+        public string? FileName { get; set; }
         public Guid? TemplateId { get; set; }
+        public string? FilePath { get; set; }
+        public string? Content { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
         // Navigation ( Later, when we add EF Core in the DAL layer, EF can use these navigation properties to map relationships)
         public User? OwnerUser { get; set; }
