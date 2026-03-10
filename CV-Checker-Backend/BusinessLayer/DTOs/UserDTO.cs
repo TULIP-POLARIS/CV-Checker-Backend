@@ -1,4 +1,4 @@
-﻿namespace BusinessLogic.DTOs
+namespace BusinessLogic.DTOs
 {
     public class CreateUserDTO
     {
@@ -7,4 +7,11 @@
         public string? PhoneNumber { get; set; }
         public string Password { get; set; } = default!;
     }
+
+    public class UpdateUserDTO
+    {
+        public string Name { get; set; } = default!;
+        public string? PhoneNumber { get; set; }
+    }
 }
+
