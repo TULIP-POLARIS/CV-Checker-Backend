@@ -28,7 +28,7 @@ namespace CVApi.Controllers
                     CVId = dto.CVId,
                     JobOfferId = dto.JobOfferId,
                     UserId = dto.UserId,
-                    MatchScore = dto.MatchScore,
+                    MatchScore = (int?)dto.MatchScore,
                     Strengths = dto.Strengths,
                     Weaknesses = dto.Weaknesses,
                     Suggestions = dto.Suggestions,

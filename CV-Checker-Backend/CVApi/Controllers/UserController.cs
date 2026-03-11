@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using Domain.Entities;
 using DAL.Api;
 using BusinessLogic;
+using CVApi.Contracts.Users;
+using Microsoft.EntityFrameworkCore;
 
 namespace CVApi.Controllers
 {
@@ -17,33 +19,32 @@ namespace CVApi.Controllers
             _context = context;
         }
 
-        // Create a new user
+        // NOTE: registration is handled by POST api/auth/register (stores a proper password hash).
         [HttpPost]
-        public JsonResult CreateUser(User user)
-            {
-            var newUser = new User
-            {
-                Id = Guid.NewGuid(),
-                Name = user.Name,
-                Email = user.Email,
-                PasswordHash = user.PasswordHash
-            };
-            _context.Users.Add(newUser);
-            _context.SaveChanges();
-            return new JsonResult(Ok(newUser));
+        public ActionResult CreateUser()
+        {
+            return BadRequest("Use POST api/auth/register to create a user.");
         }
 
         // Get a user by ID
 
         [HttpGet]
-        public JsonResult GetUserById(Guid id)
+        public async Task<ActionResult<UserResponse>> GetUserById(Guid id)
         {
-            var user = _context.Users.Find(id);
+            var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id);
             if (user == null)
             {
-                return new JsonResult(NotFound());
+                return NotFound();
             }
-            return new JsonResult(Ok(user));
+
+            return Ok(new UserResponse
+            {
+                Id = user.Id,
+                Name = user.Name,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
+                CreatedAt = user.CreatedAt
+            });
         }
     }
 }
