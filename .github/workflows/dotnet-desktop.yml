@@ -20,13 +20,13 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Restore dependencies
-        run: dotnet restore CV-Checker-Backend.sln
+        run: dotnet restore ./CV-Checker-Backend/CV-Checker-Backend.sln
 
       - name: Build solution
-        run: dotnet build CV-Checker-Backend.sln --configuration Release --no-restore
+        run: dotnet build ./CV-Checker-Backend/CV-Checker-Backend.sln --configuration Release --no-restore
 
       - name: Publish API
-        run: dotnet publish C:\Users\diego\source\repos\CV-Checker-Backend\CV-Checker-Backend\CV-Checker-Backend.csproj --configuration Release --output ./publish --no-build
+        run: dotnet publish ./CV-Checker-Backend/CV-Checker-Backend/CV-Checker-Backend.csproj --configuration Release --output ./publish --no-build
 
       - name: Upload published API artifact
         uses: actions/upload-artifact@v4
