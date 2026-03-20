@@ -38,6 +38,20 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Identity.IPasswordHasher<Domain.Entities.User>, Microsoft.AspNetCore.Identity.PasswordHasher<Domain.Entities.User>>();
 builder.Services.Configure<CVApi.Controllers.JwtOptions>(builder.Configuration.GetSection("Jwt"));
 
+ 
+// Add CORS service
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll",
+        policy =>
+        {
+            policy
+                .AllowAnyOrigin()
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        });
+});
+
 var jwtKey = builder.Configuration["Jwt:Key"];
 if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32)
 {
@@ -75,6 +89,8 @@ if (string.IsNullOrWhiteSpace(cvMatchDbConnectionString))
 builder.Services.AddSingleton<DAL.ISqlConnectionFactory>(_ => new DAL.SqlConnectionFactory(cvMatchDbConnectionString));
 
 var app = builder.Build();
+
+app.UseCors("AllowAll");
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
