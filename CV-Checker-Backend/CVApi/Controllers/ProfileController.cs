@@ -101,7 +101,7 @@ public class ProfileController : ControllerBase
         UpdatedAt = p.UpdatedAt
     };
 
-    // ---- education (basic CRUD) ----
+    // education CRUD
 
     [HttpGet("education")]
     public async Task<ActionResult<List<EducationResponse>>> GetEducation()
@@ -222,7 +222,7 @@ public class ProfileController : ControllerBase
         return NoContent();
     }
 
-    // ---- work ----
+    // WORK EXPERIENCE CRUD
 
     [HttpGet("work")]
     public async Task<ActionResult<List<WorkExperienceResponse>>> GetWork()
@@ -347,7 +347,7 @@ public class ProfileController : ControllerBase
         return NoContent();
     }
 
-    // ---- skills ----
+    // SKILLS CRUD
 
     [HttpGet("skills")]
     public async Task<ActionResult<List<SkillResponse>>> GetSkills()
@@ -446,7 +446,7 @@ public class ProfileController : ControllerBase
         return NoContent();
     }
 
-    // ---- languages ----
+    // LANGUAGES CRUD
 
     [HttpGet("languages")]
     public async Task<ActionResult<List<LanguageResponse>>> GetLanguages()
