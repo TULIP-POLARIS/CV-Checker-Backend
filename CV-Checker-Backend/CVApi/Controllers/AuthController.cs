@@ -29,9 +29,47 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    public IActionResult Register([FromBody] RegisterRequest request)
+    public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
     {
-        return Ok("REGISTER ENDPOINT HIT");
+        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+            return BadRequest("Email and password are required.");
+
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+
+        var existing = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == normalizedEmail);
+
+        if (existing != null)
+            return Conflict("Email already registered.");
+
+        var now = DateTime.UtcNow;
+
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name,
+            Email = normalizedEmail,
+            PhoneNumber = request.PhoneNumber,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
+
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+
+        var (token, expiresAtUtc) = CreateJwt(user);
+
+        return Ok(new AuthResponse
+        {
+            Token = token,
+            ExpiresAtUtc = expiresAtUtc,
+            UserId = user.Id,
+            Name = user.Name,
+            Email = user.Email
+        });
     }
 
     [HttpPost("login")]
