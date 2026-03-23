@@ -88,6 +88,15 @@ public sealed class AuthController : ControllerBase
         });
     }
 
+    [HttpPost("forgot-password")]
+    public IActionResult ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Email))
+            return BadRequest("Email is required.");
+
+        return Ok();
+    }
+
     private (string token, DateTime expiresAtUtc) CreateJwt(User user)
     {
         if (string.IsNullOrWhiteSpace(_jwt.Key) || _jwt.Key.Length < 32)
