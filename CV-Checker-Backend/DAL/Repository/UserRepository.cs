@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
@@ -37,6 +37,8 @@ namespace DAL.Repository
         {
             if (user.CreatedAt == default)
                 user.CreatedAt = DateTime.UtcNow;
+            if (user.UpdatedAt == default)
+                user.UpdatedAt = user.CreatedAt;
 
             await _db.Users.AddAsync(user);
             await _db.SaveChangesAsync();
@@ -54,6 +56,7 @@ namespace DAL.Repository
             existing.Email = user.Email;
             existing.PhoneNumber = user.PhoneNumber;
             existing.PasswordHash = user.PasswordHash;
+            existing.UpdatedAt = DateTime.UtcNow;
 
             await _db.SaveChangesAsync();
             return existing;
