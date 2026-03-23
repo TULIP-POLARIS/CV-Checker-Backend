@@ -29,84 +29,9 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
+    public IActionResult Register([FromBody] RegisterRequest request)
     {
-        try
-        {
-            Console.WriteLine("=== REGISTER HIT ===");
-            Console.WriteLine($"Name: {request.Name}");
-            Console.WriteLine($"Email: {request.Email}");
-            Console.WriteLine($"Password: {request.Password}");
-            Console.WriteLine($"PhoneNumber: {request.PhoneNumber}");
-
-            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
-            {
-                Console.WriteLine("Email or password is missing.");
-                return BadRequest("Email and password are required.");
-            }
-
-            var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-            Console.WriteLine($"Normalized Email: {normalizedEmail}");
-
-            var existing = await _db.Users
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == normalizedEmail);
-
-            if (existing != null)
-            {
-                Console.WriteLine("Email already registered.");
-                return Conflict("Email already registered.");
-            }
-
-            var now = DateTime.UtcNow;
-
-            var user = new User
-            {
-                Id = Guid.NewGuid(),
-                Name = request.Name,
-                Email = normalizedEmail,
-                PhoneNumber = request.PhoneNumber,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
-
-            Console.WriteLine("User object created.");
-
-            user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
-            Console.WriteLine("Password hashed.");
-
-            _db.Users.Add(user);
-            Console.WriteLine("User added to DbContext.");
-
-            await _db.SaveChangesAsync();
-            Console.WriteLine("User saved to database.");
-
-            var (token, expiresAtUtc) = CreateJwt(user);
-            Console.WriteLine("JWT created successfully.");
-
-            return Ok(new AuthResponse
-            {
-                Token = token,
-                ExpiresAtUtc = expiresAtUtc,
-                UserId = user.Id,
-                Name = user.Name,
-                Email = user.Email
-            });
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("=== REGISTER ERROR ===");
-            Console.WriteLine(ex.Message);
-            Console.WriteLine(ex.InnerException?.Message);
-            Console.WriteLine(ex.StackTrace);
-
-            return StatusCode(500, new
-            {
-                message = "An error occurred while registering the user.",
-                error = ex.Message,
-                innerError = ex.InnerException?.Message
-            });
-        }
+        return Ok("REGISTER ENDPOINT HIT");
     }
 
     [HttpPost("login")]
