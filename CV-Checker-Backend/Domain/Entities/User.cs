@@ -13,6 +13,8 @@ namespace Domain.Entities;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
     //navigation
     public List<CV> CVs { get; set; } = new();
     public List<JobOffer> JobOffers { get; set; } = new();

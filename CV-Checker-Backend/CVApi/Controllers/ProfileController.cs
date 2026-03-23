@@ -347,7 +347,7 @@ public class ProfileController : ControllerBase
         return NoContent();
     }
 
-    // ---- skills ----
+    // skills
 
     [HttpGet("skills")]
     public async Task<ActionResult<List<SkillResponse>>> GetSkills()
@@ -446,7 +446,7 @@ public class ProfileController : ControllerBase
         return NoContent();
     }
 
-    // ---- languages ----
+    // languages
 
     [HttpGet("languages")]
     public async Task<ActionResult<List<LanguageResponse>>> GetLanguages()
