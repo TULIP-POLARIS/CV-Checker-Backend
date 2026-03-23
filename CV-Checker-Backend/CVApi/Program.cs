@@ -42,7 +42,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddDbContext<ApiContext>(options =>
-    options.UseInMemoryDatabase("cvmatchdb"));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("CvMatchDb")));
 builder.Services.AddControllers();
 
 builder.Services.AddOpenApi();
