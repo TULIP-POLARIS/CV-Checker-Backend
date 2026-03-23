@@ -14,6 +14,7 @@ namespace CVApi.Controllers;
 
 [ApiController]
 [Route("api/auth")]
+[Microsoft.AspNetCore.Authorization.AllowAnonymous]
 public sealed class AuthController : ControllerBase
 {
     private readonly ApiContext _db;
@@ -38,13 +39,15 @@ public sealed class AuthController : ControllerBase
         if (existing != null)
             return Conflict("Email already registered.");
 
+        var now = DateTime.UtcNow;
         var user = new User
         {
             Id = Guid.NewGuid(),
             Name = request.Name,
             Email = normalizedEmail,
             PhoneNumber = request.PhoneNumber,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = now,
+            UpdatedAt = now
         };
 
         user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);

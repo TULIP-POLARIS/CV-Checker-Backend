@@ -23,7 +23,7 @@ public class ProfileController : ControllerBase
 
     private static readonly HashSet<string> LanguageLevels = new(StringComparer.OrdinalIgnoreCase)
     {
-        "A1", "A2", "B1", "B2", "C1", "C2", "Fluent"
+        "A1", "A2", "B1", "B2", "C1", "C2", "Native"
     };
 
     public ProfileController(ApiContext db)
@@ -222,7 +222,7 @@ public class ProfileController : ControllerBase
         return NoContent();
     }
 
-    // work experience
+    // ---- work ----
 
     [HttpGet("work")]
     public async Task<ActionResult<List<WorkExperienceResponse>>> GetWork()
@@ -347,7 +347,7 @@ public class ProfileController : ControllerBase
         return NoContent();
     }
 
-    // skills
+    // ---- skills ----
 
     [HttpGet("skills")]
     public async Task<ActionResult<List<SkillResponse>>> GetSkills()
@@ -446,7 +446,7 @@ public class ProfileController : ControllerBase
         return NoContent();
     }
 
-    // languages
+    // ---- languages ----
 
     [HttpGet("languages")]
     public async Task<ActionResult<List<LanguageResponse>>> GetLanguages()
