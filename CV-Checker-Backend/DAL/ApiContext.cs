@@ -1,4 +1,4 @@
-﻿using Domain.Entities;
+using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace DAL.Api
@@ -9,6 +9,12 @@ namespace DAL.Api
         public DbSet<CV> CVs { get; set; }
         public DbSet<JobOffer> JobOffers { get; set; }
         public DbSet<CVComparison> CVComparisons { get; set; }
+
+        public DbSet<PersonalInfo> PersonalInfos { get; set; }
+        public DbSet<Education> Educations { get; set; }
+        public DbSet<WorkExperience> WorkExperiences { get; set; }
+        public DbSet<Skill> Skills { get; set; }
+        public DbSet<Language> Languages { get; set; }
 
         public ApiContext(DbContextOptions<ApiContext> options) : base(options)
         {
