@@ -49,6 +49,25 @@ namespace CVApi.Controllers
             }
         }
 
+        // POST /api/compare-cv/auto
+        [HttpPost("auto")]
+        public async Task<ActionResult<CVComparison>> CompareCVAuto([FromBody] CreateAutoCVComparisonDTO dto)
+        {
+            try
+            {
+                var result = await _comparisonService.CreateAutoCVComparisonAsync(dto);
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "An error occurred while auto-comparing the CV.", error = ex.Message });
+            }
+        }
+
         // GET /api/compare-cv/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult<CVComparison>> GetComparison(Guid id)

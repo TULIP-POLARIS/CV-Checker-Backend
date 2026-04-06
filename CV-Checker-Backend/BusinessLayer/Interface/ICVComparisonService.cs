@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using BusinessLogic.DTOs;
 using Domain.Entities;
 
 namespace BusinessLogic.Interface
@@ -12,6 +13,7 @@ namespace BusinessLogic.Interface
         Task<IEnumerable<CVComparison>> GetByUserIdAsync(Guid userId);
         
         Task<CVComparison> CreateCVComparisonAsync(CVComparison comparison);
+        Task<CVComparison> CreateAutoCVComparisonAsync(CreateAutoCVComparisonDTO dto);
     }
 }
 
