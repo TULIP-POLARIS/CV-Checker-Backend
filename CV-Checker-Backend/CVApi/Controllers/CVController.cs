@@ -3,6 +3,8 @@ using Domain.Entities;
 using BusinessLogic.Interface;
 using BusinessLogic.DTOs;
 using System.IO;
+using System.Text;
+using UglyToad.PdfPig;
 
 namespace CVApi.Controllers
 {
@@ -70,6 +72,8 @@ namespace CVApi.Controllers
 
                 await using var ms = new MemoryStream();
                 await dto.File.CopyToAsync(ms);
+                var fileBytes = ms.ToArray();
+                var extractedText = ExtractTextFromPdf(fileBytes);
 
                 var cv = new CV
                 {
@@ -77,11 +81,12 @@ namespace CVApi.Controllers
                     UserId = dto.UserId,
                     FileName = dto.File.FileName,
                     TemplateId = dto.TemplateId,
-                    FileData = ms.ToArray(),
+                    FileData = fileBytes,
                     ContentType = string.IsNullOrWhiteSpace(dto.File.ContentType)
                         ? "application/pdf"
                         : dto.File.ContentType,
                     FileSizeBytes = dto.File.Length,
+                    Content = extractedText,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -154,6 +159,27 @@ namespace CVApi.Controllers
             {
                 return StatusCode(500, new { message = "An error occurred while downloading CV file.", error = ex.Message });
             }
+        }
+
+        private static string ExtractTextFromPdf(byte[] pdfBytes)
+        {
+            if (pdfBytes == null || pdfBytes.Length == 0)
+                return string.Empty;
+
+            using var stream = new MemoryStream(pdfBytes);
+            using var document = PdfDocument.Open(stream);
+            var textBuilder = new StringBuilder();
+
+            foreach (var page in document.GetPages())
+            {
+                var pageText = page.Text;
+                if (!string.IsNullOrWhiteSpace(pageText))
+                {
+                    textBuilder.AppendLine(pageText);
+                }
+            }
+
+            return textBuilder.ToString().Trim();
         }
     }
 }
