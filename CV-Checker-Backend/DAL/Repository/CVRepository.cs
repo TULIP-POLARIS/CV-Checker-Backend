@@ -52,6 +52,9 @@ namespace DAL.Repository
             existing.FilePath = cv.FilePath;
             existing.TemplateId = cv.TemplateId;
             existing.Content = cv.Content;
+            existing.FileData = cv.FileData;
+            existing.ContentType = cv.ContentType;
+            existing.FileSizeBytes = cv.FileSizeBytes;
             existing.UpdatedAt = DateTime.UtcNow;
 
             await _db.SaveChangesAsync();

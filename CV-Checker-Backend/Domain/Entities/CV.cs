@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Text.Json.Serialization;
 using static System.Collections.Specialized.BitVector32;
 
 namespace Domain.Entities
@@ -17,6 +18,10 @@ namespace Domain.Entities
         public Guid? TemplateId { get; set; }
         public string? FilePath { get; set; }
         public string? Content { get; set; }
+        [JsonIgnore]
+        public byte[]? FileData { get; set; }
+        public string? ContentType { get; set; }
+        public long? FileSizeBytes { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? UpdatedAt { get; set; }
 
