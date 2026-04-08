@@ -139,13 +139,25 @@ public sealed class AuthController : ControllerBase
         }
     }
 
+    [HttpGet("register-status")]
+    public async Task<ActionResult<RegisterStatusResponse>> RegisterStatus([FromQuery] string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            return BadRequest(new { message = "Query parameter email is required." });
+
+        var normalized = email.Trim().ToLowerInvariant();
+        var exists = await _db.Users.AsNoTracking()
+            .AnyAsync(u => u.Email != null && u.Email.ToLower() == normalized);
+        return Ok(new RegisterStatusResponse { Registered = exists });
+    }
+
     [HttpPost("forgot-password")]
     public IActionResult ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Email))
             return BadRequest("Email is required.");
 
-        return Ok();
+        return Ok(new { message = "If the email exists, you will receive reset instructions." });
     }
 
     private (string token, DateTime expiresAtUtc) CreateJwt(User user)
