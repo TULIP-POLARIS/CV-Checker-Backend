@@ -15,6 +15,8 @@ namespace DAL.Api
         public DbSet<WorkExperience> WorkExperiences { get; set; }
         public DbSet<Skill> Skills { get; set; }
         public DbSet<Language> Languages { get; set; }
+        public DbSet<CvBackground> CvBackgrounds { get; set; }
+        public DbSet<CvGenerated> CvGenerations { get; set; }
 
         public ApiContext(DbContextOptions<ApiContext> options) : base(options)
         {
