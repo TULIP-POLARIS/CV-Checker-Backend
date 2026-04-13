@@ -1,60 +1,66 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using BusinessLogic.Services;
-using Domain.Entities;
+﻿using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using BusinessLogic.Interface;
+using BusinessLogic.Services;
 
 namespace CVApi.Controllers
 {
-    public class CVExtractionController : Controller //extraction only
+    [ApiController]
+    [Route("api/cv")]
+    [Authorize]
+    public class CVExtractionController : ControllerBase
     {
-        [ApiController]
-        [Route("api/cv-extraction")]
-        public class CvExtractionController : ControllerBase
+        private readonly ICVService _cvService;
+        private readonly CVExtractionRunner _runner;
+
+        public CVExtractionController(ICVService cvService)
         {
-            private readonly ICVService _cvService;
-            private readonly CVExtractionRunner _runner;
+            _cvService = cvService;
+            _runner = new CVExtractionRunner();
+        }
 
-            public CvExtractionController(ICVService cvService)
+        [HttpPost("{id}/extract")]
+        public async Task<IActionResult> ExtractCv(Guid id)
+        {
+            try
             {
-                _cvService = cvService;
-                _runner = new CVExtractionRunner();
-            }
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-            // POST /api/cv-extraction/{id}
-            [HttpPost("{id}")]
-            public async Task<IActionResult> ExtractCv(Guid id)
-            {
-                try
-                {
-                    var cv = await _cvService.GetByIdAsync(id);
+                if (string.IsNullOrWhiteSpace(userIdClaim))
+                    return Unauthorized(new { message = "Invalid token." });
 
-                    if (cv == null)
-                        return NotFound(new { message = "CV not found." });
+                var cv = await _cvService.GetByIdAsync(id);
 
-                    if (cv.FileData == null || cv.FileData.Length == 0)
-                        return NotFound(new { message = "CV file not found." });
+                if (cv == null)
+                    return NotFound(new { message = "CV not found." });
 
-                    CVExtractionResult result = await _runner.ExtractFromBytesAsync(cv.FileData, cv.FileName);
+                if (cv.UserId.ToString() != userIdClaim)
+                    return Forbid();
 
-                    if (!string.IsNullOrWhiteSpace(result.Error))
-                    {
-                        return StatusCode(500, new
-                        {
-                            message = "CV extraction failed.",
-                            error = result.Error
-                        });
-                    }
+                if (string.IsNullOrWhiteSpace(cv.FilePath))
+                    return BadRequest(new { message = "CV file path is missing." });
 
-                    return Ok(result);
-                }
-                catch (Exception ex)
+                var result = await _runner.ExtractFromFileAsync(cv.FilePath);
+
+                if (!string.IsNullOrWhiteSpace(result.Error))
                 {
                     return StatusCode(500, new
                     {
-                        message = "An error occurred while extracting CV data.",
-                        error = ex.Message
+                        message = "CV extraction failed.",
+                        error = result.Error
                     });
                 }
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "An error occurred while extracting CV.",
+                    error = ex.Message
+                });
             }
         }
     }

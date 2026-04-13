@@ -1,47 +1,69 @@
-﻿using Domain.Entities;
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
+﻿using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
+using Domain.Entities;
 
 namespace BusinessLogic.Services
 {
-    public class CVExtractionRunner  //this class writes temp files,starts Python processes,reads stdout/stderr,deserializes JSON
+    public class CVExtractionRunner
     {
         private readonly string _pythonExe;
         private readonly string _scriptPath;
 
         public CVExtractionRunner()
         {
-            _pythonExe = "python";
-            _scriptPath = Path.Combine(Directory.GetCurrentDirectory(), "PythonScripts", "cv_extract.py");
+            _pythonExe = Path.GetFullPath(
+                Path.Combine(
+                    Directory.GetCurrentDirectory(),
+                    "..",
+                    ".venv",
+                    "Scripts",
+                    "python.exe"
+                )
+            );
+
+            _scriptPath = Path.GetFullPath(
+                Path.Combine(
+                    Directory.GetCurrentDirectory(),
+                    "..",
+                    "PythonScripts",
+                    "cv_extract.py"
+                )
+            );
         }
 
-        public async Task<CVExtractionResult> ExtractFromBytesAsync(byte[] fileData, string? fileName)
+        public async Task<CVExtractionResult> ExtractFromFileAsync(string filePath)
         {
-            if (fileData == null || fileData.Length == 0)
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
             {
                 return new CVExtractionResult
                 {
-                    Error = "CV file is empty."
+                    Error = "CV file path is invalid or file does not exist."
                 };
             }
 
-            var extension = GetSafeExtension(fileName);
-            var tempFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}{extension}");
+            if (!File.Exists(_pythonExe))
+            {
+                return new CVExtractionResult
+                {
+                    Error = $"Python executable not found: {_pythonExe}"
+                };
+            }
+
+            if (!File.Exists(_scriptPath))
+            {
+                return new CVExtractionResult
+                {
+                    Error = $"Python script not found: {_scriptPath}"
+                };
+            }
 
             try
             {
-                await File.WriteAllBytesAsync(tempFilePath, fileData);
-
                 var processStartInfo = new ProcessStartInfo
                 {
                     FileName = _pythonExe,
-                    Arguments = $"\"{_scriptPath}\" \"{tempFilePath}\"",
+                    Arguments = $"\"{_scriptPath}\" \"{filePath}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -63,7 +85,7 @@ namespace BusinessLogic.Services
                 {
                     return new CVExtractionResult
                     {
-                        Error = $"Python process failed. {stderr}"
+                        Error = $"Python process failed: {stderr}"
                     };
                 }
 
@@ -75,59 +97,55 @@ namespace BusinessLogic.Services
                     };
                 }
 
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
+                string jsonOutput = ExtractJsonFromOutput(stdout);
 
-                var result = JsonSerializer.Deserialize<CVExtractionResult>(stdout, options);
-
-                if (result == null)
+                if (string.IsNullOrWhiteSpace(jsonOutput))
                 {
                     return new CVExtractionResult
                     {
-                        Error = "Failed to deserialize Python output."
+                        Error = $"Could not find JSON in Python output. Raw output: {stdout}"
                     };
                 }
 
-                return result;
+                var result = JsonSerializer.Deserialize<CVExtractionResult>(
+                    jsonOutput,
+                    new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                return result ?? new CVExtractionResult
+                {
+                    Error = "Failed to deserialize extraction result."
+                };
             }
             catch (Exception ex)
             {
                 return new CVExtractionResult
                 {
-                    Error = $"Extraction failed: {ex.Message}"
+                    Error = ex.Message
                 };
-            }
-            finally
-            {
-                try
-                {
-                    if (File.Exists(tempFilePath))
-                        File.Delete(tempFilePath);
-                }
-                catch
-                {
-                    // ignore temp file cleanup failure
-                }
             }
         }
 
-        private static string GetSafeExtension(string? fileName)
+        private static string ExtractJsonFromOutput(string output)
         {
-            if (string.IsNullOrWhiteSpace(fileName))
-                return ".pdf";
+            if (string.IsNullOrWhiteSpace(output))
+                return string.Empty;
 
-            var ext = Path.GetExtension(fileName).ToLowerInvariant();
+            var lines = output
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+                .Reverse();
 
-            return ext switch
+            foreach (var line in lines)
             {
-                ".pdf" => ".pdf",
-                ".docx" => ".docx",
-                ".txt" => ".txt",
-                _ => ".pdf"
-            };
+                var trimmed = line.Trim();
+
+                if (trimmed.StartsWith("{") && trimmed.EndsWith("}"))
+                    return trimmed;
+            }
+
+            return string.Empty;
         }
     }
 }
-

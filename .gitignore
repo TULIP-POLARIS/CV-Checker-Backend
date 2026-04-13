@@ -416,3 +416,10 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+
+.venv/
+PythonScripts/__pycache__/
+*.pyc
+bin/
+obj/
