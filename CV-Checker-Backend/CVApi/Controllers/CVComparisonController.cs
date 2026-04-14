@@ -56,7 +56,27 @@ namespace CVApi.Controllers
             try
             {
                 var result = await _comparisonService.CreateAutoCVComparisonAsync(dto);
-                return Ok(result);
+                var score = result.MatchScore ?? 0;
+                var isMatch = score >= 60;
+                var matchMessage = isMatch
+                    ? $"Match found ({score}%)."
+                    : $"Not a strong match yet ({score}%).";
+
+                return Ok(new
+                {
+                    result.Id,
+                    result.CVId,
+                    result.JobOfferId,
+                    result.UserId,
+                    result.MatchScore,
+                    isMatch,
+                    matchMessage,
+                    result.Strengths,
+                    result.Weaknesses,
+                    result.Suggestions,
+                    result.AnalysisResult,
+                    result.CreatedAt
+                });
             }
             catch (ArgumentException ex)
             {
