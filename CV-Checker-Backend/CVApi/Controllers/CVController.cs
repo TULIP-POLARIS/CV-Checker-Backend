@@ -22,6 +22,8 @@ public sealed class CVController : ControllerBase
 
     public CVController(ICVService cvService, ApiContext db)
     {
+        Console.WriteLine($"File bytes length: {fileBytes.Length}");
+
         _cvService = cvService;
         _db = db;
     }
