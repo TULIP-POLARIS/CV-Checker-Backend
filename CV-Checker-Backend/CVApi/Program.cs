@@ -58,6 +58,7 @@ builder.Services.AddScoped<ICVService, CVService>();
 builder.Services.AddScoped<IJobOfferService, JobOfferService>();
 builder.Services.AddScoped<ICVComparisonService, CVComparisonService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<CVExtractionRunner>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Identity.IPasswordHasher<Domain.Entities.User>, Microsoft.AspNetCore.Identity.PasswordHasher<Domain.Entities.User>>();
 builder.Services.Configure<CVApi.Controllers.JwtOptions>(builder.Configuration.GetSection("Jwt"));
 

@@ -1,11 +1,13 @@
 using System.Text;
 using BusinessLogic.Interface;
+using BusinessLogic.Services;
 using CVApi.Auth;
 using DAL.Api;
 using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using UglyToad.PdfPig;
 
 namespace CVApi.Controllers;
@@ -19,13 +21,13 @@ public sealed class CVController : ControllerBase
 
     private readonly ICVService _cvService;
     private readonly ApiContext _db;
+    private readonly CVExtractionRunner _runner;
 
-    public CVController(ICVService cvService, ApiContext db)
+    public CVController(ICVService cvService, ApiContext db, CVExtractionRunner runner)
     {
-        Console.WriteLine($"File bytes length: {fileBytes.Length}");
-
         _cvService = cvService;
         _db = db;
+        _runner = runner;
     }
 
     /// <summary>POST /api/cv/upload — multipart field name: file</summary>
@@ -50,6 +52,20 @@ public sealed class CVController : ControllerBase
         await file.CopyToAsync(ms);
         var fileBytes = ms.ToArray();
         var extractedText = ExtractTextFromPdf(fileBytes);
+        CVExtractionResult? aiResult = null;
+
+        // Runs the Python extractor using a temp file without requiring FilePath persistence.
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.pdf");
+        try
+        {
+            await System.IO.File.WriteAllBytesAsync(tempPath, fileBytes);
+            aiResult = await _runner.ExtractFromFileAsync(tempPath);
+        }
+        finally
+        {
+            if (System.IO.File.Exists(tempPath))
+                System.IO.File.Delete(tempPath);
+        }
 
         var cv = new CV
         {
@@ -59,7 +75,9 @@ public sealed class CVController : ControllerBase
             FileData = fileBytes,
             ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/pdf" : file.ContentType,
             FileSizeBytes = file.Length,
-            Content = extractedText,
+            Content = !string.IsNullOrWhiteSpace(aiResult?.Error)
+                ? extractedText
+                : JsonSerializer.Serialize(aiResult),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -71,7 +89,8 @@ public sealed class CVController : ControllerBase
                 id = result.Id,
                 fileName = result.FileName,
                 uploadedAt = result.CreatedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                message = "CV uploaded successfully"
+                message = "CV uploaded successfully",
+                aiExtractionOk = aiResult != null && string.IsNullOrWhiteSpace(aiResult.Error)
             });
         }
         catch (ArgumentException ex)
