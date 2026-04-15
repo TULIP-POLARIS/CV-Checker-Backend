@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Domain.Entities;
 using BusinessLogic.Interface;
 using BusinessLogic.DTOs;
+using System.Text.RegularExpressions;
 
 namespace CVApi.Controllers
 {
@@ -61,6 +62,9 @@ namespace CVApi.Controllers
                 var matchMessage = isMatch
                     ? $"Match found ({score}%)."
                     : $"Not a strong match yet ({score}%).";
+                var matchedKeywords = ExtractKeywordList(result.Strengths, "Matched keywords:");
+                var missingKeywords = ExtractKeywordList(result.Weaknesses, "Missing keywords:");
+                var improvementSuggestions = BuildImprovementSuggestions(score, missingKeywords);
 
                 return Ok(new
                 {
@@ -75,7 +79,13 @@ namespace CVApi.Controllers
                     result.Weaknesses,
                     result.Suggestions,
                     result.AnalysisResult,
-                    result.CreatedAt
+                    result.CreatedAt,
+                    feedback = new
+                    {
+                        strengths = matchedKeywords,
+                        gaps = missingKeywords,
+                        suggestWhatToImprove = improvementSuggestions
+                    }
                 });
             }
             catch (ArgumentException ex)
@@ -120,6 +130,57 @@ namespace CVApi.Controllers
             {
                 return StatusCode(500, new { message = "An error occurred while retrieving comparisons.", error = ex.Message });
             }
+        }
+
+        private static List<string> ExtractKeywordList(string? source, string prefix)
+        {
+            if (string.IsNullOrWhiteSpace(source))
+                return new List<string>();
+
+            var normalized = source.Trim();
+            if (normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                normalized = normalized[prefix.Length..].Trim();
+
+            return normalized
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(k => Regex.Replace(k, @"\s+", " ").Trim())
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(10)
+                .ToList();
+        }
+
+        private static List<string> BuildImprovementSuggestions(int score, List<string> missingKeywords)
+        {
+            var suggestions = new List<string>();
+
+            if (missingKeywords.Count > 0)
+            {
+                foreach (var keyword in missingKeywords.Take(5))
+                {
+                    suggestions.Add($"Add concrete evidence for '{keyword}' in your work experience or projects.");
+                }
+            }
+
+            if (score < 40)
+            {
+                suggestions.Add("Rewrite your CV summary to mirror the role title and top job requirements.");
+                suggestions.Add("Prioritize the most relevant experience at the top of the CV.");
+            }
+            else if (score < 70)
+            {
+                suggestions.Add("Add quantified achievements (numbers, impact, KPIs) for relevant roles.");
+                suggestions.Add("Tailor your skills section to include exact terms from the job offer.");
+            }
+            else
+            {
+                suggestions.Add("Fine-tune wording to match the job description and improve keyword coverage.");
+            }
+
+            return suggestions
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(8)
+                .ToList();
         }
     }
 }
