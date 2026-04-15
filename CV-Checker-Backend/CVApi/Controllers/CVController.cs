@@ -133,8 +133,6 @@ public sealed class CVController : ControllerBase
         if (userId == null) return Unauthorized();
 
         var id = Guid.NewGuid();
-        var baseUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}";
-        var cvUrl = $"{baseUrl}/api/cv/generated/{id}/file";
 
         var row = new CvGenerated
         {
@@ -142,13 +140,20 @@ public sealed class CVController : ControllerBase
             UserId = userId.Value,
             JobTitle = body.JobTitle ?? "",
             JobDescription = body.JobDescription ?? "",
-            CvUrl = cvUrl,
+            CvUrl = "",
             CreatedAt = DateTime.UtcNow
         };
         _db.CvGenerations.Add(row);
         await _db.SaveChangesAsync();
 
-        return Ok(new { id, cvUrl, message = "CV generated successfully" });
+        var generatedCv = await BuildGeneratedCvSections(userId.Value, row);
+
+        return Ok(new
+        {
+            id,
+            message = "CV generated successfully",
+            generatedCv
+        });
     }
 
     [HttpGet("generated/{id:guid}/file")]
@@ -160,83 +165,82 @@ public sealed class CVController : ControllerBase
         var gen = await _db.CvGenerations.AsNoTracking().FirstOrDefaultAsync(g => g.Id == id);
         if (gen == null || gen.UserId != userId) return NotFound();
 
-        var text = await BuildGeneratedCvText(userId.Value, gen);
-        var bytes = Encoding.UTF8.GetBytes(text);
-        var safeTitle = string.IsNullOrWhiteSpace(gen.JobTitle) ? "cv" : string.Join("-", gen.JobTitle.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
-        return File(bytes, "text/plain; charset=utf-8", $"{safeTitle}.txt");
+        var generatedCv = await BuildGeneratedCvSections(userId.Value, gen);
+        return Ok(new { id = gen.Id, generatedCv });
     }
 
-    private async Task<string> BuildGeneratedCvText(Guid userId, CvGenerated gen)
+    private async Task<object> BuildGeneratedCvSections(Guid userId, CvGenerated gen)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine(gen.JobTitle);
-        sb.AppendLine(new string('=', gen.JobTitle.Length));
-        sb.AppendLine();
-        sb.AppendLine("Job description:");
-        sb.AppendLine(gen.JobDescription);
-        sb.AppendLine();
-
         var personal = await _db.PersonalInfos.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == userId);
-        if (personal != null)
-        {
-            sb.AppendLine("Personal");
-            sb.AppendLine($"{personal.FirstName} {personal.LastName}");
-            if (personal.DateOfBirth.HasValue) sb.AppendLine($"Born: {personal.DateOfBirth:yyyy-MM-dd}");
-            if (!string.IsNullOrWhiteSpace(personal.PhoneNumber)) sb.AppendLine($"Phone: {personal.PhoneNumber}");
-            if (!string.IsNullOrWhiteSpace(personal.Address)) sb.AppendLine($"Address: {personal.Address}");
-            sb.AppendLine();
-        }
-
         var bg = await _db.CvBackgrounds.AsNoTracking()
             .Where(b => b.UserId == userId)
             .OrderByDescending(b => b.CreatedAt)
             .FirstOrDefaultAsync();
-        if (bg != null && !string.IsNullOrWhiteSpace(bg.BackgroundText))
-        {
-            sb.AppendLine("Background");
-            sb.AppendLine(bg.BackgroundText);
-            sb.AppendLine();
-        }
 
         var edu = await _db.Educations.AsNoTracking().Where(e => e.UserId == userId).ToListAsync();
-        if (edu.Count > 0)
-        {
-            sb.AppendLine("Education");
-            foreach (var e in edu)
-                sb.AppendLine($"- {e.Degree}, {e.FieldOfStudy} @ {e.Institution} ({e.StartDate} – {e.EndDate ?? "present"})");
-            sb.AppendLine();
-        }
 
         var work = await _db.WorkExperiences.AsNoTracking().Where(w => w.UserId == userId).ToListAsync();
-        if (work.Count > 0)
-        {
-            sb.AppendLine("Experience");
-            foreach (var w in work)
-            {
-                sb.AppendLine($"- {w.JobTitle} @ {w.Company} ({w.StartDate} – {(w.CurrentlyWorking ? "present" : w.EndDate)})");
-                if (!string.IsNullOrWhiteSpace(w.Description)) sb.AppendLine($"  {w.Description}");
-            }
-            sb.AppendLine();
-        }
 
         var skills = await _db.Skills.AsNoTracking().Where(s => s.UserId == userId).ToListAsync();
-        if (skills.Count > 0)
-        {
-            sb.AppendLine("Skills");
-            foreach (var s in skills) sb.AppendLine($"- {s.Name} ({s.Level})");
-            sb.AppendLine();
-        }
 
         var langs = await _db.Languages.AsNoTracking().Where(l => l.UserId == userId).ToListAsync();
-        if (langs.Count > 0)
+        return new
         {
-            sb.AppendLine("Languages");
-            foreach (var l in langs) sb.AppendLine($"- {l.Name} ({l.Level})");
-        }
-
-        sb.AppendLine();
-        sb.AppendLine("— Generated from your profile (template output; plug in an LLM provider here if needed).");
-        return sb.ToString();
+            metadata = new
+            {
+                generatedId = gen.Id,
+                createdAt = gen.CreatedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                targetJobTitle = gen.JobTitle,
+                targetJobDescription = gen.JobDescription
+            },
+            sections = new
+            {
+                profile = new
+                {
+                    fullName = personal == null
+                        ? string.Empty
+                        : $"{personal.FirstName} {personal.LastName}".Trim(),
+                    firstName = personal?.FirstName ?? string.Empty,
+                    lastName = personal?.LastName ?? string.Empty,
+                    dateOfBirth = personal?.DateOfBirth?.ToString("yyyy-MM-dd"),
+                    phoneNumber = personal?.PhoneNumber ?? string.Empty,
+                    address = personal?.Address ?? string.Empty,
+                    nationality = personal?.Nationality ?? string.Empty,
+                    gender = personal?.Gender ?? string.Empty,
+                    countryOfResidence = personal?.CountryOfResidence ?? string.Empty
+                },
+                summary = bg?.BackgroundText ?? string.Empty,
+                skills = skills.Select(s => new
+                {
+                    name = s.Name,
+                    level = s.Level
+                }),
+                languages = langs.Select(l => new
+                {
+                    name = l.Name,
+                    level = l.Level
+                }),
+                education = edu.Select(e => new
+                {
+                    degree = e.Degree,
+                    fieldOfStudy = e.FieldOfStudy,
+                    institution = e.Institution,
+                    startDate = e.StartDate,
+                    endDate = e.EndDate,
+                    description = e.Description
+                }),
+                workExperience = work.Select(w => new
+                {
+                    jobTitle = w.JobTitle,
+                    company = w.Company,
+                    location = w.Location,
+                    startDate = w.StartDate,
+                    endDate = w.EndDate,
+                    currentlyWorking = w.CurrentlyWorking,
+                    description = w.Description
+                })
+            }
+        };
     }
 
     [HttpGet("{id:guid}")]
