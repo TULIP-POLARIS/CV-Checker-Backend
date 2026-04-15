@@ -164,8 +164,7 @@ namespace BusinessLogic.Services
             {
                 "the", "and", "for", "with", "from", "that", "this", "your", "you", "are", "will",
                 "a", "an", "of", "to", "in", "on", "at", "as", "or", "be", "is", "it", "by", "we",
-                "our", "their", "de", "da", "do", "e", "em", "com", "para", "um", "uma", "que",
-                "os", "as", "na", "no", "dos", "das", "ser", "ter", "mais"
+                "our", "their"
             };
 
             var words = Regex.Matches(text.ToLowerInvariant(), @"[a-zA-ZÀ-ÿ0-9\+\#\.]{2,}")

@@ -125,7 +125,7 @@ public sealed class CVController : ControllerBase
         public string? JobDescription { get; set; }
     }
 
-    /// <summary>Gera um CV em texto a partir do perfil + vaga (substitui chamada LLM por composição simples).</summary>
+    /// <summary>Generates a CV payload from profile + job input (template composition, no LLM call).</summary>
     [HttpPost("generate")]
     public async Task<IActionResult> Generate([FromBody] GenerateBody body)
     {
