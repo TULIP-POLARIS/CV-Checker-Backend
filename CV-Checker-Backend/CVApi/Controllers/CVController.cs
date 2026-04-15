@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using UglyToad.PdfPig;
 
 namespace CVApi.Controllers;
@@ -182,8 +183,19 @@ public sealed class CVController : ControllerBase
         var work = await _db.WorkExperiences.AsNoTracking().Where(w => w.UserId == userId).ToListAsync();
 
         var skills = await _db.Skills.AsNoTracking().Where(s => s.UserId == userId).ToListAsync();
+        var hasProfileSkills = skills.Count > 0;
+        var aiFallbackSkills = hasProfileSkills
+            ? new List<string>()
+            : await GetAiFallbackSkillsAsync(userId);
+        var normalizedSkills = hasProfileSkills
+            ? skills.Select(s => new { name = s.Name, level = s.Level, source = "profile" })
+            : aiFallbackSkills.Select(s => new { name = s, level = "Not specified", source = "ai-fallback" });
 
         var langs = await _db.Languages.AsNoTracking().Where(l => l.UserId == userId).ToListAsync();
+        var hasBackground = !string.IsNullOrWhiteSpace(bg?.BackgroundText);
+        var hasLanguages = langs.Count > 0;
+        var hasEducation = edu.Count > 0;
+        var hasWorkExperience = work.Count > 0;
         return new
         {
             metadata = new
@@ -191,7 +203,16 @@ public sealed class CVController : ControllerBase
                 generatedId = gen.Id,
                 createdAt = gen.CreatedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
                 targetJobTitle = gen.JobTitle,
-                targetJobDescription = gen.JobDescription
+                targetJobDescription = gen.JobDescription,
+                dataSources = new
+                {
+                    personalDetails = "profile",
+                    summary = hasBackground ? "profile-background" : "none",
+                    skills = hasProfileSkills ? "profile" : "ai-fallback-from-uploaded-cv",
+                    languages = hasLanguages ? "profile" : "none",
+                    education = hasEducation ? "profile" : "none",
+                    workExperience = hasWorkExperience ? "profile" : "none"
+                }
             },
             sections = new
             {
@@ -207,18 +228,20 @@ public sealed class CVController : ControllerBase
                     address = personal?.Address ?? string.Empty,
                     nationality = personal?.Nationality ?? string.Empty,
                     gender = personal?.Gender ?? string.Empty,
-                    countryOfResidence = personal?.CountryOfResidence ?? string.Empty
+                    countryOfResidence = personal?.CountryOfResidence ?? string.Empty,
+                    source = "profile"
                 },
-                summary = bg?.BackgroundText ?? string.Empty,
-                skills = skills.Select(s => new
+                summary = new
                 {
-                    name = s.Name,
-                    level = s.Level
-                }),
+                    text = bg?.BackgroundText ?? string.Empty,
+                    source = hasBackground ? "profile-background" : "none"
+                },
+                skills = normalizedSkills,
                 languages = langs.Select(l => new
                 {
                     name = l.Name,
-                    level = l.Level
+                    level = l.Level,
+                    source = "profile"
                 }),
                 education = edu.Select(e => new
                 {
@@ -227,7 +250,8 @@ public sealed class CVController : ControllerBase
                     institution = e.Institution,
                     startDate = e.StartDate,
                     endDate = e.EndDate,
-                    description = e.Description
+                    description = e.Description,
+                    source = "profile"
                 }),
                 workExperience = work.Select(w => new
                 {
@@ -237,10 +261,44 @@ public sealed class CVController : ControllerBase
                     startDate = w.StartDate,
                     endDate = w.EndDate,
                     currentlyWorking = w.CurrentlyWorking,
-                    description = w.Description
+                    description = w.Description,
+                    source = "profile"
                 })
             }
         };
+    }
+
+    private async Task<List<string>> GetAiFallbackSkillsAsync(Guid userId)
+    {
+        var latestCv = await _db.CVs.AsNoTracking()
+            .Where(c => c.UserId == userId && !string.IsNullOrWhiteSpace(c.Content))
+            .OrderByDescending(c => c.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (latestCv == null || string.IsNullOrWhiteSpace(latestCv.Content))
+            return new List<string>();
+
+        CVExtractionResult? extraction = null;
+        try
+        {
+            extraction = JsonSerializer.Deserialize<CVExtractionResult>(latestCv.Content);
+        }
+        catch (JsonException)
+        {
+            extraction = null;
+        }
+
+        var rawSkills = extraction?.Skills;
+        if (string.IsNullOrWhiteSpace(rawSkills) || string.Equals(rawSkills, "Not found", StringComparison.OrdinalIgnoreCase))
+            return new List<string>();
+
+        return rawSkills
+            .Split(new[] { ',', ';', '\n', '\r', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => Regex.Replace(s, @"\s+", " ").Trim())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(20)
+            .ToList();
     }
 
     [HttpGet("{id:guid}")]
