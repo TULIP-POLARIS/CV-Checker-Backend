@@ -170,6 +170,22 @@ public sealed class CVController : ControllerBase
         return Ok(new { id = gen.Id, generatedCv });
     }
 
+    [HttpGet("generated/stats")]
+    public async Task<IActionResult> GetGeneratedStats()
+    {
+        var totalGeneratedCvs = await _db.CvGenerations.AsNoTracking().CountAsync();
+        var totalUsers = await _db.CvGenerations.AsNoTracking()
+            .Select(g => g.UserId)
+            .Distinct()
+            .CountAsync();
+
+        return Ok(new
+        {
+            totalGeneratedCvs,
+            totalUsers
+        });
+    }
+
     private async Task<object> BuildGeneratedCvSections(Guid userId, CvGenerated gen)
     {
         var personal = await _db.PersonalInfos.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == userId);
