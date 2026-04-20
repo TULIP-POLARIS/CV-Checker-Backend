@@ -1,8 +1,8 @@
-﻿using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using BusinessLogic.Interface;
 using BusinessLogic.Services;
+using CVApi.Auth;
 
 namespace CVApi.Controllers
 {
@@ -25,9 +25,8 @@ namespace CVApi.Controllers
         {
             try
             {
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-                if (string.IsNullOrWhiteSpace(userIdClaim))
+                var userId = HttpUser.GetUserId(User);
+                if (userId == null)
                     return Unauthorized(new { message = "Invalid token." });
 
                 var cv = await _cvService.GetByIdAsync(id);
@@ -35,24 +34,41 @@ namespace CVApi.Controllers
                 if (cv == null)
                     return NotFound(new { message = "CV not found." });
 
-                if (cv.UserId.ToString() != userIdClaim)
+                if (cv.UserId != userId)
                     return Forbid();
 
-                if (string.IsNullOrWhiteSpace(cv.FilePath))
-                    return BadRequest(new { message = "CV file path is missing." });
-
-                var result = await _runner.ExtractFromFileAsync(cv.FilePath);
-
-                if (!string.IsNullOrWhiteSpace(result.Error))
+                string? tempPath = null;
+                try
                 {
-                    return StatusCode(500, new
+                    var pathToExtract = cv.FilePath;
+                    if (string.IsNullOrWhiteSpace(pathToExtract))
                     {
-                        message = "CV extraction failed.",
-                        error = result.Error
-                    });
-                }
+                        if (cv.FileData == null || cv.FileData.Length == 0)
+                            return BadRequest(new { message = "CV file path and file data are both missing." });
 
-                return Ok(result);
+                        tempPath = Path.Combine(Path.GetTempPath(), $"{cv.Id}.pdf");
+                        await System.IO.File.WriteAllBytesAsync(tempPath, cv.FileData);
+                        pathToExtract = tempPath;
+                    }
+
+                    var result = await _runner.ExtractFromFileAsync(pathToExtract);
+
+                    if (!string.IsNullOrWhiteSpace(result.Error))
+                    {
+                        return StatusCode(500, new
+                        {
+                            message = "CV extraction failed.",
+                            error = result.Error
+                        });
+                    }
+
+                    return Ok(result);
+                }
+                finally
+                {
+                    if (!string.IsNullOrWhiteSpace(tempPath) && System.IO.File.Exists(tempPath))
+                        System.IO.File.Delete(tempPath);
+                }
             }
             catch (Exception ex)
             {

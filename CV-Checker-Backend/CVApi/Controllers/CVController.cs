@@ -1,11 +1,14 @@
 using System.Text;
 using BusinessLogic.Interface;
+using BusinessLogic.Services;
 using CVApi.Auth;
 using DAL.Api;
 using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using UglyToad.PdfPig;
 
 namespace CVApi.Controllers;
@@ -19,11 +22,13 @@ public sealed class CVController : ControllerBase
 
     private readonly ICVService _cvService;
     private readonly ApiContext _db;
+    private readonly CVExtractionRunner _runner;
 
-    public CVController(ICVService cvService, ApiContext db)
+    public CVController(ICVService cvService, ApiContext db, CVExtractionRunner runner)
     {
         _cvService = cvService;
         _db = db;
+        _runner = runner;
     }
 
     /// <summary>POST /api/cv/upload — multipart field name: file</summary>
@@ -48,6 +53,20 @@ public sealed class CVController : ControllerBase
         await file.CopyToAsync(ms);
         var fileBytes = ms.ToArray();
         var extractedText = ExtractTextFromPdf(fileBytes);
+        CVExtractionResult? aiResult = null;
+
+        // Runs the Python extractor using a temp file without requiring FilePath persistence.
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.pdf");
+        try
+        {
+            await System.IO.File.WriteAllBytesAsync(tempPath, fileBytes);
+            aiResult = await _runner.ExtractFromFileAsync(tempPath);
+        }
+        finally
+        {
+            if (System.IO.File.Exists(tempPath))
+                System.IO.File.Delete(tempPath);
+        }
 
         var cv = new CV
         {
@@ -57,7 +76,9 @@ public sealed class CVController : ControllerBase
             FileData = fileBytes,
             ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/pdf" : file.ContentType,
             FileSizeBytes = file.Length,
-            Content = extractedText,
+            Content = !string.IsNullOrWhiteSpace(aiResult?.Error)
+                ? extractedText
+                : JsonSerializer.Serialize(aiResult),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -69,7 +90,8 @@ public sealed class CVController : ControllerBase
                 id = result.Id,
                 fileName = result.FileName,
                 uploadedAt = result.CreatedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                message = "CV uploaded successfully"
+                message = "CV uploaded successfully",
+                aiExtractionOk = aiResult != null && string.IsNullOrWhiteSpace(aiResult.Error)
             });
         }
         catch (ArgumentException ex)
@@ -104,7 +126,7 @@ public sealed class CVController : ControllerBase
         public string? JobDescription { get; set; }
     }
 
-    /// <summary>Gera um CV em texto a partir do perfil + vaga (substitui chamada LLM por composição simples).</summary>
+    /// <summary>Generates a CV payload from profile + job input (template composition, no LLM call).</summary>
     [HttpPost("generate")]
     public async Task<IActionResult> Generate([FromBody] GenerateBody body)
     {
@@ -112,8 +134,6 @@ public sealed class CVController : ControllerBase
         if (userId == null) return Unauthorized();
 
         var id = Guid.NewGuid();
-        var baseUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}";
-        var cvUrl = $"{baseUrl}/api/cv/generated/{id}/file";
 
         var row = new CvGenerated
         {
@@ -121,13 +141,20 @@ public sealed class CVController : ControllerBase
             UserId = userId.Value,
             JobTitle = body.JobTitle ?? "",
             JobDescription = body.JobDescription ?? "",
-            CvUrl = cvUrl,
+            CvUrl = "",
             CreatedAt = DateTime.UtcNow
         };
         _db.CvGenerations.Add(row);
         await _db.SaveChangesAsync();
 
-        return Ok(new { id, cvUrl, message = "CV generated successfully" });
+        var generatedCv = await BuildGeneratedCvSections(userId.Value, row);
+
+        return Ok(new
+        {
+            id,
+            message = "CV generated successfully",
+            generatedCv
+        });
     }
 
     [HttpGet("generated/{id:guid}/file")]
@@ -139,83 +166,155 @@ public sealed class CVController : ControllerBase
         var gen = await _db.CvGenerations.AsNoTracking().FirstOrDefaultAsync(g => g.Id == id);
         if (gen == null || gen.UserId != userId) return NotFound();
 
-        var text = await BuildGeneratedCvText(userId.Value, gen);
-        var bytes = Encoding.UTF8.GetBytes(text);
-        var safeTitle = string.IsNullOrWhiteSpace(gen.JobTitle) ? "cv" : string.Join("-", gen.JobTitle.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
-        return File(bytes, "text/plain; charset=utf-8", $"{safeTitle}.txt");
+        var generatedCv = await BuildGeneratedCvSections(userId.Value, gen);
+        return Ok(new { id = gen.Id, generatedCv });
     }
 
-    private async Task<string> BuildGeneratedCvText(Guid userId, CvGenerated gen)
+    [HttpGet("generated/stats")]
+    public async Task<IActionResult> GetGeneratedStats()
     {
-        var sb = new StringBuilder();
-        sb.AppendLine(gen.JobTitle);
-        sb.AppendLine(new string('=', gen.JobTitle.Length));
-        sb.AppendLine();
-        sb.AppendLine("Job description:");
-        sb.AppendLine(gen.JobDescription);
-        sb.AppendLine();
+        var totalGeneratedCvs = await _db.CvGenerations.AsNoTracking().CountAsync();
+        var totalUsers = await _db.CvGenerations.AsNoTracking()
+            .Select(g => g.UserId)
+            .Distinct()
+            .CountAsync();
 
-        var personal = await _db.PersonalInfos.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == userId);
-        if (personal != null)
+        return Ok(new
         {
-            sb.AppendLine("Personal");
-            sb.AppendLine($"{personal.FirstName} {personal.LastName}");
-            if (personal.DateOfBirth.HasValue) sb.AppendLine($"Born: {personal.DateOfBirth:yyyy-MM-dd}");
-            if (!string.IsNullOrWhiteSpace(personal.PhoneNumber)) sb.AppendLine($"Phone: {personal.PhoneNumber}");
-            if (!string.IsNullOrWhiteSpace(personal.Address)) sb.AppendLine($"Address: {personal.Address}");
-            sb.AppendLine();
-        }
+            totalGeneratedCvs,
+            totalUsers
+        });
+    }
 
+    private async Task<object> BuildGeneratedCvSections(Guid userId, CvGenerated gen)
+    {
+        var personal = await _db.PersonalInfos.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == userId);
         var bg = await _db.CvBackgrounds.AsNoTracking()
             .Where(b => b.UserId == userId)
             .OrderByDescending(b => b.CreatedAt)
             .FirstOrDefaultAsync();
-        if (bg != null && !string.IsNullOrWhiteSpace(bg.BackgroundText))
-        {
-            sb.AppendLine("Background");
-            sb.AppendLine(bg.BackgroundText);
-            sb.AppendLine();
-        }
 
         var edu = await _db.Educations.AsNoTracking().Where(e => e.UserId == userId).ToListAsync();
-        if (edu.Count > 0)
-        {
-            sb.AppendLine("Education");
-            foreach (var e in edu)
-                sb.AppendLine($"- {e.Degree}, {e.FieldOfStudy} @ {e.Institution} ({e.StartDate} – {e.EndDate ?? "present"})");
-            sb.AppendLine();
-        }
 
         var work = await _db.WorkExperiences.AsNoTracking().Where(w => w.UserId == userId).ToListAsync();
-        if (work.Count > 0)
-        {
-            sb.AppendLine("Experience");
-            foreach (var w in work)
-            {
-                sb.AppendLine($"- {w.JobTitle} @ {w.Company} ({w.StartDate} – {(w.CurrentlyWorking ? "present" : w.EndDate)})");
-                if (!string.IsNullOrWhiteSpace(w.Description)) sb.AppendLine($"  {w.Description}");
-            }
-            sb.AppendLine();
-        }
 
         var skills = await _db.Skills.AsNoTracking().Where(s => s.UserId == userId).ToListAsync();
-        if (skills.Count > 0)
-        {
-            sb.AppendLine("Skills");
-            foreach (var s in skills) sb.AppendLine($"- {s.Name} ({s.Level})");
-            sb.AppendLine();
-        }
+        var hasProfileSkills = skills.Count > 0;
+        var aiFallbackSkills = hasProfileSkills
+            ? new List<string>()
+            : await GetAiFallbackSkillsAsync(userId);
+        var normalizedSkills = hasProfileSkills
+            ? skills.Select(s => new { name = s.Name, level = s.Level, source = "profile" })
+            : aiFallbackSkills.Select(s => new { name = s, level = "Not specified", source = "ai-fallback" });
 
         var langs = await _db.Languages.AsNoTracking().Where(l => l.UserId == userId).ToListAsync();
-        if (langs.Count > 0)
+        var hasBackground = !string.IsNullOrWhiteSpace(bg?.BackgroundText);
+        var hasLanguages = langs.Count > 0;
+        var hasEducation = edu.Count > 0;
+        var hasWorkExperience = work.Count > 0;
+        return new
         {
-            sb.AppendLine("Languages");
-            foreach (var l in langs) sb.AppendLine($"- {l.Name} ({l.Level})");
+            metadata = new
+            {
+                generatedId = gen.Id,
+                createdAt = gen.CreatedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                targetJobTitle = gen.JobTitle,
+                targetJobDescription = gen.JobDescription,
+                dataSources = new
+                {
+                    personalDetails = "profile",
+                    summary = hasBackground ? "profile-background" : "none",
+                    skills = hasProfileSkills ? "profile" : "ai-fallback-from-uploaded-cv",
+                    languages = hasLanguages ? "profile" : "none",
+                    education = hasEducation ? "profile" : "none",
+                    workExperience = hasWorkExperience ? "profile" : "none"
+                }
+            },
+            sections = new
+            {
+                profile = new
+                {
+                    fullName = personal == null
+                        ? string.Empty
+                        : $"{personal.FirstName} {personal.LastName}".Trim(),
+                    firstName = personal?.FirstName ?? string.Empty,
+                    lastName = personal?.LastName ?? string.Empty,
+                    dateOfBirth = personal?.DateOfBirth?.ToString("yyyy-MM-dd"),
+                    phoneNumber = personal?.PhoneNumber ?? string.Empty,
+                    address = personal?.Address ?? string.Empty,
+                    nationality = personal?.Nationality ?? string.Empty,
+                    gender = personal?.Gender ?? string.Empty,
+                    countryOfResidence = personal?.CountryOfResidence ?? string.Empty,
+                    source = "profile"
+                },
+                summary = new
+                {
+                    text = bg?.BackgroundText ?? string.Empty,
+                    source = hasBackground ? "profile-background" : "none"
+                },
+                skills = normalizedSkills,
+                languages = langs.Select(l => new
+                {
+                    name = l.Name,
+                    level = l.Level,
+                    source = "profile"
+                }),
+                education = edu.Select(e => new
+                {
+                    degree = e.Degree,
+                    fieldOfStudy = e.FieldOfStudy,
+                    institution = e.Institution,
+                    startDate = e.StartDate,
+                    endDate = e.EndDate,
+                    description = e.Description,
+                    source = "profile"
+                }),
+                workExperience = work.Select(w => new
+                {
+                    jobTitle = w.JobTitle,
+                    company = w.Company,
+                    location = w.Location,
+                    startDate = w.StartDate,
+                    endDate = w.EndDate,
+                    currentlyWorking = w.CurrentlyWorking,
+                    description = w.Description,
+                    source = "profile"
+                })
+            }
+        };
+    }
+
+    private async Task<List<string>> GetAiFallbackSkillsAsync(Guid userId)
+    {
+        var latestCv = await _db.CVs.AsNoTracking()
+            .Where(c => c.UserId == userId && !string.IsNullOrWhiteSpace(c.Content))
+            .OrderByDescending(c => c.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (latestCv == null || string.IsNullOrWhiteSpace(latestCv.Content))
+            return new List<string>();
+
+        CVExtractionResult? extraction = null;
+        try
+        {
+            extraction = JsonSerializer.Deserialize<CVExtractionResult>(latestCv.Content);
+        }
+        catch (JsonException)
+        {
+            extraction = null;
         }
 
-        sb.AppendLine();
-        sb.AppendLine("— Generated from your profile (template output; plug in an LLM provider here if needed).");
-        return sb.ToString();
+        var rawSkills = extraction?.Skills;
+        if (string.IsNullOrWhiteSpace(rawSkills) || string.Equals(rawSkills, "Not found", StringComparison.OrdinalIgnoreCase))
+            return new List<string>();
+
+        return rawSkills
+            .Split(new[] { ',', ';', '\n', '\r', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => Regex.Replace(s, @"\s+", " ").Trim())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(20)
+            .ToList();
     }
 
     [HttpGet("{id:guid}")]

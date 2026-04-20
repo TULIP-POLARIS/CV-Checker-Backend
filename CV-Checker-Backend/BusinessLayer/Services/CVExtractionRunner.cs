@@ -12,24 +12,8 @@ namespace BusinessLogic.Services
 
         public CVExtractionRunner()
         {
-            _pythonExe = Path.GetFullPath(
-                Path.Combine(
-                    Directory.GetCurrentDirectory(),
-                    "..",
-                    ".venv",
-                    "Scripts",
-                    "python.exe"
-                )
-            );
-
-            _scriptPath = Path.GetFullPath(
-                Path.Combine(
-                    Directory.GetCurrentDirectory(),
-                    "..",
-                    "PythonScripts",
-                    "cv_extract.py"
-                )
-            );
+            _pythonExe = ResolvePythonExecutable();
+            _scriptPath = ResolveScriptPath();
         }
 
         public async Task<CVExtractionResult> ExtractFromFileAsync(string filePath)
@@ -39,14 +23,6 @@ namespace BusinessLogic.Services
                 return new CVExtractionResult
                 {
                     Error = "CV file path is invalid or file does not exist."
-                };
-            }
-
-            if (!File.Exists(_pythonExe))
-            {
-                return new CVExtractionResult
-                {
-                    Error = $"Python executable not found: {_pythonExe}"
                 };
             }
 
@@ -85,7 +61,7 @@ namespace BusinessLogic.Services
                 {
                     return new CVExtractionResult
                     {
-                        Error = $"Python process failed: {stderr}"
+                        Error = $"Python process failed: {(string.IsNullOrWhiteSpace(stderr) ? stdout : stderr)}"
                     };
                 }
 
@@ -146,6 +122,45 @@ namespace BusinessLogic.Services
             }
 
             return string.Empty;
+        }
+
+        private static string ResolvePythonExecutable()
+        {
+            var configured = Environment.GetEnvironmentVariable("PYTHON_EXE");
+            if (!string.IsNullOrWhiteSpace(configured))
+                return configured;
+
+            var candidates = new[]
+            {
+                Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", ".venv", "Scripts", "python.exe")),
+                Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".venv", "Scripts", "python.exe"))
+            };
+
+            foreach (var candidate in candidates)
+            {
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            return "python";
+        }
+
+        private static string ResolveScriptPath()
+        {
+            var candidates = new[]
+            {
+                Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "PythonScripts", "cv_extract.py")),
+                Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PythonScripts", "cv_extract.py"))
+            };
+
+            foreach (var candidate in candidates)
+            {
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            // Keeps previous behavior in the error message if not found.
+            return candidates[0];
         }
     }
 }
