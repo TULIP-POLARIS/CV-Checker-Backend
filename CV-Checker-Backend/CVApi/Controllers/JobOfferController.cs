@@ -1,19 +1,27 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 using Domain.Entities;
 using BusinessLogic.Interface;
 using BusinessLogic.DTOs;
+using BusinessLayer.Services;
 
 namespace CVApi.Controllers
 {
     [Route("api/joboffers")]
     [ApiController]
+    [Authorize]
     public class JobOfferController : ControllerBase
     {
         private readonly IJobOfferService _jobOfferService;
+        private readonly JobOfferReadinessService _jobOfferReadinessService;
 
-        public JobOfferController(IJobOfferService jobOfferService)
+        public JobOfferController(
+            IJobOfferService jobOfferService,
+            JobOfferReadinessService jobOfferReadinessService)
         {
             _jobOfferService = jobOfferService;
+            _jobOfferReadinessService = jobOfferReadinessService;
         }
 
         // POST /api/joboffers
@@ -22,9 +30,15 @@ namespace CVApi.Controllers
         {
             try
             {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+                    return Unauthorized(new { message = "Invalid token." });
+
                 var jobOffer = new JobOffer
                 {
                     Id = Guid.NewGuid(),
+                    UserId = userId,
                     Title = dto.Title,
                     Company = dto.Company,
                     Description = dto.Description,
@@ -79,6 +93,45 @@ namespace CVApi.Controllers
                 return StatusCode(500, new { message = "An error occurred while retrieving the job offer.", error = ex.Message });
             }
         }
+
+        // POST /api/joboffers/{id}/check
+        [HttpPost("{id}/check")]
+        public async Task<IActionResult> CheckJobOffer(Guid id)
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+                    return Unauthorized(new { message = "Invalid token." });
+
+                var jobOffer = await _jobOfferService.GetByIdAsync(id);
+
+                if (jobOffer == null)
+                    return NotFound(new { message = "Job offer not found." });
+
+                if (jobOffer.UserId != userId)
+                    return Forbid();
+
+                var readiness = await _jobOfferReadinessService.CheckUserReadinessAsync(userId);
+
+                if (!readiness.CanProceed)
+                    return BadRequest(readiness);
+
+                return Ok(new
+                {
+                    message = "Profile is sufficient for job offer analysis.",
+                    jobOfferId = id
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "An error occurred while checking the job offer.",
+                    error = ex.Message
+                });
+            }
+        }
     }
 }
-
