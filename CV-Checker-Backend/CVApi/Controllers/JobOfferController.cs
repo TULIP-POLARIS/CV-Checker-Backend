@@ -24,7 +24,6 @@ namespace CVApi.Controllers
             _jobOfferReadinessService = jobOfferReadinessService;
         }
 
-        // POST /api/joboffers
         [HttpPost]
         public async Task<ActionResult<JobOfferResponseDTO>> CreateJobOffer([FromBody] CreateJobOfferDTO dto)
         {
@@ -81,7 +80,6 @@ namespace CVApi.Controllers
             }
         }
 
-        // GET /api/joboffers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<JobOfferResponseDTO>>> GetJobOffers()
         {
@@ -116,7 +114,6 @@ namespace CVApi.Controllers
             }
         }
 
-        // GET /api/joboffers/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult<JobOfferResponseDTO>> GetJobOffer(Guid id)
         {
@@ -154,7 +151,6 @@ namespace CVApi.Controllers
             }
         }
 
-        // POST /api/joboffers/{id}/check
         [HttpPost("{id}/check")]
         public async Task<IActionResult> CheckJobOffer(Guid id)
         {
