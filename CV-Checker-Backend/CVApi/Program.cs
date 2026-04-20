@@ -1,7 +1,6 @@
-using BusinessLayer.Services;
+using BusinessLogic.Services;
 using BusinessLogic;
 using BusinessLogic.Interface;
-using BusinessLogic.Services;
 using CVApi;
 using DAL.Api;
 using DAL.Interface;

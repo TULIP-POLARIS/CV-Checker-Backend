@@ -4,7 +4,7 @@ using System.Security.Claims;
 using Domain.Entities;
 using BusinessLogic.Interface;
 using BusinessLogic.DTOs;
-using BusinessLayer.Services;
+using BusinessLogic.Services;
 
 namespace CVApi.Controllers
 {
