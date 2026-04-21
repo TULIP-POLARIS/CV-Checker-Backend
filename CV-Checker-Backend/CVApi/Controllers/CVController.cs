@@ -315,22 +315,66 @@ public sealed class CVController : ControllerBase
         var edu = await _db.Educations.AsNoTracking().Where(e => e.UserId == userId).ToListAsync();
         var work = await _db.WorkExperiences.AsNoTracking().Where(w => w.UserId == userId).ToListAsync();
         var skills = await _db.Skills.AsNoTracking().Where(s => s.UserId == userId).ToListAsync();
+        var extraction = await GetLatestExtractionResultAsync(userId);
 
-        var hasProfileSkills = skills.Count > 0;
-        var aiFallbackSkills = hasProfileSkills
+        var hasProfileInfo = personal != null || edu.Count > 0 || work.Count > 0 || skills.Count > 0;
+        var useProfileData = hasProfileInfo;
+
+        var aiFallbackSkills = useProfileData
             ? new List<string>()
-            : await GetAiFallbackSkillsAsync(userId);
+            : SplitExtractionValues(extraction?.Skills);
 
-        var normalizedSkills = hasProfileSkills
+        var normalizedSkills = useProfileData
             ? skills.Select(s => new { name = s.Name, level = s.Level, source = "profile" })
             : aiFallbackSkills.Select(s => new { name = s, level = "Not specified", source = "ai-fallback" });
 
         var langs = await _db.Languages.AsNoTracking().Where(l => l.UserId == userId).ToListAsync();
 
+        var profileFullName = personal == null
+            ? string.Empty
+            : $"{personal.FirstName} {personal.LastName}".Trim();
+        var aiFullName = IsMeaningfulExtractionValue(extraction?.FullName) ? extraction!.FullName : string.Empty;
+
+        var profilePhone = personal?.PhoneNumber ?? string.Empty;
+        var aiPhone = IsMeaningfulExtractionValue(extraction?.Phone) ? extraction!.Phone : string.Empty;
+
+        var fallbackEducation = useProfileData || !IsMeaningfulExtractionValue(extraction?.Education)
+            ? Array.Empty<object>()
+            : new[]
+            {
+                new
+                {
+                    degree = string.Empty,
+                    fieldOfStudy = string.Empty,
+                    institution = string.Empty,
+                    startDate = string.Empty,
+                    endDate = string.Empty,
+                    description = extraction!.Education,
+                    source = "ai-fallback"
+                }
+            };
+
+        var fallbackWorkExperience = useProfileData || !IsMeaningfulExtractionValue(extraction?.WorkExperience)
+            ? Array.Empty<object>()
+            : new[]
+            {
+                new
+                {
+                    jobTitle = string.Empty,
+                    company = string.Empty,
+                    location = string.Empty,
+                    startDate = string.Empty,
+                    endDate = string.Empty,
+                    currentlyWorking = false,
+                    description = extraction!.WorkExperience,
+                    source = "ai-fallback"
+                }
+            };
+
         var hasBackground = !string.IsNullOrWhiteSpace(bg?.BackgroundText);
         var hasLanguages = langs.Count > 0;
-        var hasEducation = edu.Count > 0;
-        var hasWorkExperience = work.Count > 0;
+        var hasEducation = useProfileData ? edu.Count > 0 : fallbackEducation.Length > 0;
+        var hasWorkExperience = useProfileData ? work.Count > 0 : fallbackWorkExperience.Length > 0;
 
         return new
         {
@@ -342,33 +386,35 @@ public sealed class CVController : ControllerBase
                 targetJobDescription = gen.JobDescription,
                 dataSources = new
                 {
-                    personalDetails = "profile",
+                    personalDetails = useProfileData ? "profile" : "ai-fallback-from-uploaded-cv",
                     summary = hasBackground ? "profile-background" : "none",
-                    skills = hasProfileSkills ? "profile" : "ai-fallback-from-uploaded-cv",
+                    skills = useProfileData ? "profile" : "ai-fallback-from-uploaded-cv",
                     languages = hasLanguages ? "profile" : "none",
-                    education = hasEducation ? "profile" : "none",
-                    workExperience = hasWorkExperience ? "profile" : "none"
+                    education = useProfileData
+                        ? (hasEducation ? "profile" : "none")
+                        : (hasEducation ? "ai-fallback-from-uploaded-cv" : "none"),
+                    workExperience = useProfileData
+                        ? (hasWorkExperience ? "profile" : "none")
+                        : (hasWorkExperience ? "ai-fallback-from-uploaded-cv" : "none")
                 }
             },
             sections = new
             {
                 profile = new
                 {
-                    fullName = personal == null
-                    ? string.Empty
-                    : $"{personal.FirstName} {personal.LastName}".Trim(),
-                    firstName = personal?.FirstName ?? string.Empty,
-                    lastName = personal?.LastName ?? string.Empty,
+                    fullName = useProfileData ? profileFullName : aiFullName,
+                    firstName = useProfileData ? personal?.FirstName ?? string.Empty : string.Empty,
+                    lastName = useProfileData ? personal?.LastName ?? string.Empty : string.Empty,
                     dateOfBirth = personal?.DateOfBirth?.ToString("yyyy-MM-dd"),
-                    phoneNumber = personal?.PhoneNumber ?? string.Empty,
-                    address = personal?.Address ?? string.Empty,
-                    nationality = personal?.Nationality ?? string.Empty,
-                    gender = personal?.Gender ?? string.Empty,
-                    countryOfResidence = personal?.CountryOfResidence ?? string.Empty,
-                    profilePictureUrl = personal?.ProfilePictureData != null && personal.ProfilePictureData.Length > 0
+                    phoneNumber = useProfileData ? profilePhone : aiPhone,
+                    address = useProfileData ? personal?.Address ?? string.Empty : string.Empty,
+                    nationality = useProfileData ? personal?.Nationality ?? string.Empty : string.Empty,
+                    gender = useProfileData ? personal?.Gender ?? string.Empty : string.Empty,
+                    countryOfResidence = useProfileData ? personal?.CountryOfResidence ?? string.Empty : string.Empty,
+                    profilePictureUrl = useProfileData && personal?.ProfilePictureData != null && personal.ProfilePictureData.Length > 0
                     ? "/api/profile/personal/picture"
                     : null,
-                    source = "profile"
+                    source = useProfileData ? "profile" : "ai-fallback"
                 },
                 summary = new
                 {
@@ -382,32 +428,36 @@ public sealed class CVController : ControllerBase
                     level = l.Level,
                     source = "profile"
                 }),
-                education = edu.Select(e => new
-                {
-                    degree = e.Degree,
-                    fieldOfStudy = e.FieldOfStudy,
-                    institution = e.Institution,
-                    startDate = e.StartDate,
-                    endDate = e.EndDate,
-                    description = e.Description,
-                    source = "profile"
-                }),
-                workExperience = work.Select(w => new
-                {
-                    jobTitle = w.JobTitle,
-                    company = w.Company,
-                    location = w.Location,
-                    startDate = w.StartDate,
-                    endDate = w.EndDate,
-                    currentlyWorking = w.CurrentlyWorking,
-                    description = w.Description,
-                    source = "profile"
-                })
+                education = useProfileData
+                    ? edu.Select(e => (object)new
+                    {
+                        degree = e.Degree,
+                        fieldOfStudy = e.FieldOfStudy,
+                        institution = e.Institution,
+                        startDate = e.StartDate,
+                        endDate = e.EndDate,
+                        description = e.Description,
+                        source = "profile"
+                    })
+                    : fallbackEducation,
+                workExperience = useProfileData
+                    ? work.Select(w => (object)new
+                    {
+                        jobTitle = w.JobTitle,
+                        company = w.Company,
+                        location = w.Location,
+                        startDate = w.StartDate,
+                        endDate = w.EndDate,
+                        currentlyWorking = w.CurrentlyWorking,
+                        description = w.Description,
+                        source = "profile"
+                    })
+                    : fallbackWorkExperience
             }
         };
     }
 
-    private async Task<List<string>> GetAiFallbackSkillsAsync(Guid userId)
+    private async Task<CVExtractionResult?> GetLatestExtractionResultAsync(Guid userId)
     {
         var latestCv = await _db.CVs.AsNoTracking()
             .Where(c => c.UserId == userId && !string.IsNullOrWhiteSpace(c.Content))
@@ -415,29 +465,38 @@ public sealed class CVController : ControllerBase
             .FirstOrDefaultAsync();
 
         if (latestCv == null || string.IsNullOrWhiteSpace(latestCv.Content))
-            return new List<string>();
+            return null;
 
-        CVExtractionResult? extraction = null;
         try
         {
-            extraction = JsonSerializer.Deserialize<CVExtractionResult>(latestCv.Content);
+            return JsonSerializer.Deserialize<CVExtractionResult>(latestCv.Content);
         }
         catch (JsonException)
         {
-            extraction = null;
+            return null;
         }
+    }
 
-        var rawSkills = extraction?.Skills;
-        if (string.IsNullOrWhiteSpace(rawSkills) || string.Equals(rawSkills, "Not found", StringComparison.OrdinalIgnoreCase))
+    private static List<string> SplitExtractionValues(string? raw)
+    {
+        if (!IsMeaningfulExtractionValue(raw))
             return new List<string>();
 
-        return rawSkills
+        return raw!
             .Split(new[] { ',', ';', '\n', '\r', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(s => Regex.Replace(s, @"\s+", " ").Trim())
             .Where(s => !string.IsNullOrWhiteSpace(s))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(20)
             .ToList();
+    }
+
+    private static bool IsMeaningfulExtractionValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        return !string.Equals(value.Trim(), "Not found", StringComparison.OrdinalIgnoreCase);
     }
 
     [HttpGet("{id:guid}")]

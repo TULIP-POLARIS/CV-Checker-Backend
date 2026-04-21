@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
+using System.Security.Claims;
 
 namespace CVApi.Tests;
 
@@ -86,6 +87,109 @@ public class CVControllerTests
         var dailyStatsObj = ok.Value!.GetType().GetProperty("dailyStats")!.GetValue(ok.Value)!;
         var entries = ((IEnumerable<object>)dailyStatsObj).ToList();
         Assert.Empty(entries);
+    }
+
+    [Fact]
+    public async Task Generate_UsesProfileData_WhenProfileExists()
+    {
+        var userId = Guid.NewGuid();
+        var dbOptions = new DbContextOptionsBuilder<ApiContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var db = new ApiContext(dbOptions);
+
+        db.PersonalInfos.Add(new PersonalInfo
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            FirstName = "Profile",
+            LastName = "User",
+            PhoneNumber = "111-111",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        db.Skills.Add(new Skill
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Name = "C#",
+            Level = "Advanced",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        db.CVs.Add(new CV
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Content = "{\"FullName\":\"AI Name\",\"Phone\":\"999\",\"Skills\":\"Python, SQL\"}",
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var controller = BuildCvController(db, userId);
+        var action = await controller.Generate(new CVController.GenerateBody { JobTitle = "Backend", JobDescription = "Build APIs" });
+
+        var ok = Assert.IsType<OkObjectResult>(action);
+        var generatedCv = ok.Value!.GetType().GetProperty("generatedCv")!.GetValue(ok.Value)!;
+        var sections = generatedCv.GetType().GetProperty("sections")!.GetValue(generatedCv)!;
+        var profile = sections.GetType().GetProperty("profile")!.GetValue(sections)!;
+        var skillsObj = sections.GetType().GetProperty("skills")!.GetValue(sections)!;
+        var firstSkill = ((IEnumerable<object>)skillsObj).First();
+
+        Assert.Equal("Profile User", profile.GetType().GetProperty("fullName")!.GetValue(profile)!.ToString());
+        Assert.Equal("111-111", profile.GetType().GetProperty("phoneNumber")!.GetValue(profile)!.ToString());
+        Assert.Equal("C#", firstSkill.GetType().GetProperty("name")!.GetValue(firstSkill)!.ToString());
+        Assert.Equal("profile", profile.GetType().GetProperty("source")!.GetValue(profile)!.ToString());
+    }
+
+    [Fact]
+    public async Task Generate_UsesUploadedCvAiData_WhenProfileDoesNotExist()
+    {
+        var userId = Guid.NewGuid();
+        var dbOptions = new DbContextOptionsBuilder<ApiContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var db = new ApiContext(dbOptions);
+
+        db.CVs.Add(new CV
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Content = "{\"FullName\":\"AI Name\",\"Phone\":\"999\",\"Skills\":\"Python, SQL\",\"WorkExperience\":\"AI Work\",\"Education\":\"AI Edu\"}",
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var controller = BuildCvController(db, userId);
+        var action = await controller.Generate(new CVController.GenerateBody { JobTitle = "Backend", JobDescription = "Build APIs" });
+
+        var ok = Assert.IsType<OkObjectResult>(action);
+        var generatedCv = ok.Value!.GetType().GetProperty("generatedCv")!.GetValue(ok.Value)!;
+        var sections = generatedCv.GetType().GetProperty("sections")!.GetValue(generatedCv)!;
+        var profile = sections.GetType().GetProperty("profile")!.GetValue(sections)!;
+        var skillsObj = sections.GetType().GetProperty("skills")!.GetValue(sections)!;
+        var firstSkill = ((IEnumerable<object>)skillsObj).First();
+
+        Assert.Equal("AI Name", profile.GetType().GetProperty("fullName")!.GetValue(profile)!.ToString());
+        Assert.Equal("999", profile.GetType().GetProperty("phoneNumber")!.GetValue(profile)!.ToString());
+        Assert.Equal("Python", firstSkill.GetType().GetProperty("name")!.GetValue(firstSkill)!.ToString());
+        Assert.Equal("ai-fallback", profile.GetType().GetProperty("source")!.GetValue(profile)!.ToString());
+    }
+
+    private static CVController BuildCvController(ApiContext db, Guid userId)
+    {
+        var controller = new CVController(new FakeCvService(), new FakeJobOfferService(), db, new CVExtractionRunner());
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                [
+                    new Claim(ClaimTypes.NameIdentifier, userId.ToString())
+                ], "TestAuth"))
+            }
+        };
+        return controller;
     }
 }
 
