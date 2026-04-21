@@ -54,6 +54,8 @@ namespace BusinessLogic.Services
                         StandardErrorEncoding = Encoding.UTF8
                     };
 
+                    ApplyPythonEnvironment(processStartInfo);
+
                     using var process = new Process { StartInfo = processStartInfo };
 
                     process.Start();
@@ -137,6 +139,8 @@ namespace BusinessLogic.Services
                         StandardErrorEncoding = Encoding.UTF8
                     };
 
+                    ApplyPythonEnvironment(processStartInfo);
+
                     using var process = new Process { StartInfo = processStartInfo };
                     process.Start();
 
@@ -179,6 +183,40 @@ namespace BusinessLogic.Services
             };
         }
 
+        private static void ApplyPythonEnvironment(ProcessStartInfo processStartInfo)
+        {
+            var pythonPaths = new List<string>();
+
+            var existingPythonPath = Environment.GetEnvironmentVariable("PYTHONPATH");
+            if (!string.IsNullOrWhiteSpace(existingPythonPath))
+                pythonPaths.Add(existingPythonPath);
+
+            var localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+            if (!string.IsNullOrWhiteSpace(localAppData))
+            {
+                var possibleUserSitePackages = new[]
+                {
+                    Path.Combine(localAppData, "Python", "Python36", "site-packages"),
+                    Path.Combine(localAppData, "Python", "Python37", "site-packages"),
+                    Path.Combine(localAppData, "Python", "Python38", "site-packages"),
+                    Path.Combine(localAppData, "Python", "Python39", "site-packages"),
+                    Path.Combine(localAppData, "Python", "Python310", "site-packages"),
+                    Path.Combine(localAppData, "Python", "Python311", "site-packages")
+                };
+
+                foreach (var path in possibleUserSitePackages)
+                {
+                    if (Directory.Exists(path))
+                        pythonPaths.Add(path);
+                }
+            }
+
+            if (pythonPaths.Count > 0)
+            {
+                processStartInfo.Environment["PYTHONPATH"] = string.Join(";", pythonPaths.Distinct(StringComparer.OrdinalIgnoreCase));
+            }
+        }
+
         private static string ExtractJsonFromOutput(string output)
         {
             if (string.IsNullOrWhiteSpace(output))
@@ -202,6 +240,7 @@ namespace BusinessLogic.Services
         private static IReadOnlyList<PythonCommand> ResolvePythonCommands()
         {
             var commands = new List<PythonCommand>();
+
             var configured = Environment.GetEnvironmentVariable("PYTHON_EXE");
             if (!string.IsNullOrWhiteSpace(configured))
                 commands.Add(new PythonCommand(configured, string.Empty, "PYTHON_EXE"));
@@ -225,6 +264,7 @@ namespace BusinessLogic.Services
             else
             {
                 commands.Add(new PythonCommand("python3", string.Empty, "python3"));
+                commands.Add(new PythonCommand("python", string.Empty, "python"));
             }
 
             return commands
@@ -239,18 +279,21 @@ namespace BusinessLogic.Services
                 return false;
 
             var normalized = error.ToLowerInvariant();
+
             return normalized.Contains("future feature annotations is not defined", StringComparison.Ordinal)
-                || normalized.Contains("syntaxerror", StringComparison.Ordinal);
+                || normalized.Contains("syntaxerror", StringComparison.Ordinal)
+                || normalized.Contains("no module named", StringComparison.Ordinal)
+                || normalized.Contains("cannot import name", StringComparison.Ordinal);
         }
 
         private static string ResolveScriptPath()
         {
             var candidates = new[]
             {
-        Path.Combine(AppContext.BaseDirectory, "PythonScripts", "cv_extract.py"),
-        Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "PythonScripts", "cv_extract.py")),
-        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PythonScripts", "cv_extract.py"))
-    };
+                Path.Combine(AppContext.BaseDirectory, "PythonScripts", "cv_extract.py"),
+                Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "PythonScripts", "cv_extract.py")),
+                Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PythonScripts", "cv_extract.py"))
+            };
 
             foreach (var candidate in candidates)
             {
