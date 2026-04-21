@@ -13,7 +13,7 @@ namespace CVApi.Tests;
 public class CVControllerTests
 {
     [Fact]
-    public async Task GetGeneratedStats_ReturnsTotalGeneratedCvsAndTotalUsers()
+    public async Task GetGeneratedStats_ReturnsDailyStatsGroupedByDate()
     {
         // Arrange
         var dbOptions = new DbContextOptionsBuilder<ApiContext>()
@@ -22,28 +22,49 @@ public class CVControllerTests
 
         await using var db = new ApiContext(dbOptions);
         db.CvGenerations.AddRange(
-            new CvGenerated { Id = Guid.NewGuid(), UserId = Guid.Parse("11111111-1111-1111-1111-111111111111"), CreatedAt = DateTime.UtcNow },
-            new CvGenerated { Id = Guid.NewGuid(), UserId = Guid.Parse("11111111-1111-1111-1111-111111111111"), CreatedAt = DateTime.UtcNow },
-            new CvGenerated { Id = Guid.NewGuid(), UserId = Guid.Parse("22222222-2222-2222-2222-222222222222"), CreatedAt = DateTime.UtcNow }
+            new CvGenerated
+            {
+                Id = Guid.NewGuid(),
+                UserId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                CreatedAt = new DateTime(2026, 4, 1, 10, 0, 0, DateTimeKind.Utc)
+            },
+            new CvGenerated
+            {
+                Id = Guid.NewGuid(),
+                UserId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                CreatedAt = new DateTime(2026, 4, 1, 12, 0, 0, DateTimeKind.Utc)
+            },
+            new CvGenerated
+            {
+                Id = Guid.NewGuid(),
+                UserId = Guid.Parse("22222222-2222-2222-2222-222222222222"),
+                CreatedAt = new DateTime(2026, 4, 2, 9, 0, 0, DateTimeKind.Utc)
+            }
         );
         await db.SaveChangesAsync();
 
-        var controller = new CVController(new FakeCvService(), db, new CVExtractionRunner());
+        var controller = new CVController(new FakeCvService(), new FakeJobOfferService(), db, new CVExtractionRunner());
 
         // Act
         var action = await controller.GetGeneratedStats();
 
         // Assert
         var ok = Assert.IsType<OkObjectResult>(action);
-        var totalGeneratedCvs = (int)(ok.Value!.GetType().GetProperty("totalGeneratedCvs")!.GetValue(ok.Value)!);
-        var totalUsers = (int)(ok.Value!.GetType().GetProperty("totalUsers")!.GetValue(ok.Value)!);
+        var dailyStatsObj = ok.Value!.GetType().GetProperty("dailyStats")!.GetValue(ok.Value)!;
+        var entries = ((IEnumerable<object>)dailyStatsObj).ToList();
 
-        Assert.Equal(3, totalGeneratedCvs);
-        Assert.Equal(2, totalUsers);
+        Assert.Equal(2, entries.Count);
+        Assert.Equal("2026-04-01", entries[0].GetType().GetProperty("date")!.GetValue(entries[0])!.ToString());
+        Assert.Equal(2, (int)entries[0].GetType().GetProperty("generatedCvs")!.GetValue(entries[0])!);
+        Assert.Equal(1, (int)entries[0].GetType().GetProperty("users")!.GetValue(entries[0])!);
+
+        Assert.Equal("2026-04-02", entries[1].GetType().GetProperty("date")!.GetValue(entries[1])!.ToString());
+        Assert.Equal(1, (int)entries[1].GetType().GetProperty("generatedCvs")!.GetValue(entries[1])!);
+        Assert.Equal(1, (int)entries[1].GetType().GetProperty("users")!.GetValue(entries[1])!);
     }
 
     [Fact]
-    public async Task GetGeneratedStats_ReturnsZeros_WhenNoRowsExist()
+    public async Task GetGeneratedStats_ReturnsEmptyDailyStats_WhenNoRowsExist()
     {
         // Arrange
         var dbOptions = new DbContextOptionsBuilder<ApiContext>()
@@ -52,18 +73,16 @@ public class CVControllerTests
 
         await using var db = new ApiContext(dbOptions);
 
-        var controller = new CVController(new FakeCvService(), db, new CVExtractionRunner());
+        var controller = new CVController(new FakeCvService(), new FakeJobOfferService(), db, new CVExtractionRunner());
 
         // Act
         var action = await controller.GetGeneratedStats();
 
         // Assert
         var ok = Assert.IsType<OkObjectResult>(action);
-        var totalGeneratedCvs = (int)(ok.Value!.GetType().GetProperty("totalGeneratedCvs")!.GetValue(ok.Value)!);
-        var totalUsers = (int)(ok.Value!.GetType().GetProperty("totalUsers")!.GetValue(ok.Value)!);
-
-        Assert.Equal(0, totalGeneratedCvs);
-        Assert.Equal(0, totalUsers);
+        var dailyStatsObj = ok.Value!.GetType().GetProperty("dailyStats")!.GetValue(ok.Value)!;
+        var entries = ((IEnumerable<object>)dailyStatsObj).ToList();
+        Assert.Empty(entries);
     }
 }
 
@@ -208,4 +227,13 @@ internal sealed class FakeComparisonService : ICVComparisonService
             CreatedAt = DateTime.UtcNow
         });
     }
+}
+
+internal sealed class FakeJobOfferService : IJobOfferService
+{
+    public Task<JobOffer?> GetByIdAsync(Guid id) => Task.FromResult<JobOffer?>(null);
+    public Task<IEnumerable<JobOffer>> GetAllAsync() => Task.FromResult<IEnumerable<JobOffer>>(Array.Empty<JobOffer>());
+    public Task<JobOffer> CreateJobOfferAsync(JobOffer jobOffer) => Task.FromResult(jobOffer);
+    public Task<JobOffer> UpdateJobOfferAsync(JobOffer jobOffer) => Task.FromResult(jobOffer);
+    public Task<bool> DeleteJobOfferAsync(Guid id) => Task.FromResult(true);
 }

@@ -278,16 +278,29 @@ public sealed class CVController : ControllerBase
     [HttpGet("generated/stats")]
     public async Task<IActionResult> GetGeneratedStats()
     {
-        var totalGeneratedCvs = await _db.CvGenerations.AsNoTracking().CountAsync();
-        var totalUsers = await _db.CvGenerations.AsNoTracking()
-            .Select(g => g.UserId)
-            .Distinct()
-            .CountAsync();
+        var dailyStats = await _db.CvGenerations.AsNoTracking()
+            .GroupBy(g => new { g.CreatedAt.Year, g.CreatedAt.Month, g.CreatedAt.Day })
+            .Select(group => new
+            {
+                group.Key.Year,
+                group.Key.Month,
+                group.Key.Day,
+                generatedCvs = group.Count(),
+                users = group.Select(g => g.UserId).Distinct().Count()
+            })
+            .OrderBy(stat => stat.Year)
+            .ThenBy(stat => stat.Month)
+            .ThenBy(stat => stat.Day)
+            .ToListAsync();
 
         return Ok(new
         {
-            totalGeneratedCvs,
-            totalUsers
+            dailyStats = dailyStats.Select(stat => new
+            {
+                date = new DateTime(stat.Year, stat.Month, stat.Day).ToString("yyyy-MM-dd"),
+                stat.generatedCvs,
+                stat.users
+            })
         });
     }
 
