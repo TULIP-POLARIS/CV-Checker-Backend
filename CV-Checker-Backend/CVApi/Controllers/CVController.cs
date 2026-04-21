@@ -171,7 +171,7 @@ public sealed class CVController : ControllerBase
                     id = savedCv.Id,
                     fileName = savedCv.FileName,
                     uploadedAt = savedCv.CreatedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                    aiExtractionOk = aiResult != null && string.IsNullOrWhiteSpace(aiResult.Error)
+                    aiExtractionError = aiResult?.Error
                 },
                 background = savedBackground == null ? null : new
                 {
