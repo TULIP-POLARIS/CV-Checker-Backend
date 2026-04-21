@@ -1,7 +1,6 @@
-using BusinessLayer.Services;
+using BusinessLogic.Services;
 using BusinessLogic.DTOs;
 using BusinessLogic.Interface;
-using BusinessLogic.Services;
 using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
