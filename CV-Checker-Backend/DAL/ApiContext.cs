@@ -21,11 +21,18 @@ namespace DAL.Api
         public ApiContext(DbContextOptions<ApiContext> options) : base(options)
         {
         }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<CV>(entity =>
             {
                 entity.Property(e => e.FileData)
+                      .HasColumnType("varbinary(max)");
+            });
+
+            modelBuilder.Entity<PersonalInfo>(entity =>
+            {
+                entity.Property(e => e.ProfilePictureData)
                       .HasColumnType("varbinary(max)");
             });
         }

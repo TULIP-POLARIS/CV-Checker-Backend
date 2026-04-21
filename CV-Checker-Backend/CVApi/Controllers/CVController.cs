@@ -342,8 +342,8 @@ public sealed class CVController : ControllerBase
                 profile = new
                 {
                     fullName = personal == null
-                        ? string.Empty
-                        : $"{personal.FirstName} {personal.LastName}".Trim(),
+                    ? string.Empty
+                    : $"{personal.FirstName} {personal.LastName}".Trim(),
                     firstName = personal?.FirstName ?? string.Empty,
                     lastName = personal?.LastName ?? string.Empty,
                     dateOfBirth = personal?.DateOfBirth?.ToString("yyyy-MM-dd"),
@@ -352,6 +352,9 @@ public sealed class CVController : ControllerBase
                     nationality = personal?.Nationality ?? string.Empty,
                     gender = personal?.Gender ?? string.Empty,
                     countryOfResidence = personal?.CountryOfResidence ?? string.Empty,
+                    profilePictureUrl = personal?.ProfilePictureData != null && personal.ProfilePictureData.Length > 0
+                    ? "/api/profile/personal/picture"
+                    : null,
                     source = "profile"
                 },
                 summary = new

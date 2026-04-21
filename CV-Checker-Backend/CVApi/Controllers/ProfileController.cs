@@ -12,6 +12,8 @@ namespace CVApi.Controllers;
 [Route("api/profile")]
 public sealed class ProfileController : ControllerBase
 {
+    private const long MaxImageSizeBytes = 5 * 1024 * 1024;
+
     private readonly ApiContext _db;
 
     public ProfileController(ApiContext db)
@@ -25,7 +27,10 @@ public sealed class ProfileController : ControllerBase
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
 
-        var row = await _db.PersonalInfos.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == userId);
+        var row = await _db.PersonalInfos
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == userId);
+
         if (row == null)
             return Ok(new PersonalOut());
 
@@ -43,7 +48,13 @@ public sealed class ProfileController : ControllerBase
 
         if (row == null)
         {
-            row = new PersonalInfo { Id = Guid.NewGuid(), UserId = userId.Value, CreatedAt = now, UpdatedAt = now };
+            row = new PersonalInfo
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId.Value,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
             _db.PersonalInfos.Add(row);
         }
 
@@ -63,6 +74,117 @@ public sealed class ProfileController : ControllerBase
         return Ok();
     }
 
+    [HttpPost("personal/picture")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadProfilePicture([FromForm] UploadProfilePictureRequest request)
+    {
+        var userId = HttpUser.GetUserId(User);
+        if (userId == null) return Unauthorized();
+
+        if (request.File == null || request.File.Length == 0)
+            return BadRequest(new { message = "Image file is required." });
+
+        if (request.File.Length > MaxImageSizeBytes)
+            return BadRequest(new { message = "Image too large. Max allowed size is 5MB." });
+
+        var extension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+
+        if (Array.IndexOf(allowedExtensions, extension) < 0)
+            return BadRequest(new { message = "Only JPG, JPEG, PNG and WEBP files are allowed." });
+
+        var contentType = string.IsNullOrWhiteSpace(request.File.ContentType)
+            ? "application/octet-stream"
+            : request.File.ContentType.ToLowerInvariant();
+
+        var allowedContentTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+        if (Array.IndexOf(allowedContentTypes, contentType) < 0)
+            return BadRequest(new { message = "Invalid image content type." });
+
+        await using var ms = new MemoryStream();
+        await request.File.CopyToAsync(ms);
+        var fileBytes = ms.ToArray();
+
+        var now = DateTime.UtcNow;
+        var row = await _db.PersonalInfos.FirstOrDefaultAsync(p => p.UserId == userId);
+
+        if (row == null)
+        {
+            row = new PersonalInfo
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId.Value,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            _db.PersonalInfos.Add(row);
+        }
+
+        row.ProfilePictureData = fileBytes;
+        row.ProfilePictureContentType = contentType;
+        row.ProfilePictureFileName = request.File.FileName;
+        row.ProfilePictureFileSizeBytes = request.File.Length;
+        row.ProfilePictureUpdatedAt = now;
+        row.UpdatedAt = now;
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            message = "Profile picture uploaded successfully.",
+            fileName = row.ProfilePictureFileName,
+            contentType = row.ProfilePictureContentType,
+            size = row.ProfilePictureFileSizeBytes
+        });
+    }
+
+    [HttpGet("personal/picture")]
+    public async Task<IActionResult> GetProfilePicture()
+    {
+        var userId = HttpUser.GetUserId(User);
+        if (userId == null) return Unauthorized();
+
+        var row = await _db.PersonalInfos
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == userId);
+
+        if (row == null || row.ProfilePictureData == null || row.ProfilePictureData.Length == 0)
+            return NotFound(new { message = "Profile picture not found." });
+
+        var contentType = string.IsNullOrWhiteSpace(row.ProfilePictureContentType)
+            ? "image/jpeg"
+            : row.ProfilePictureContentType;
+
+        var fileName = string.IsNullOrWhiteSpace(row.ProfilePictureFileName)
+            ? "profile-picture"
+            : row.ProfilePictureFileName;
+
+        return File(row.ProfilePictureData, contentType, fileName);
+    }
+
+    [HttpDelete("personal/picture")]
+    public async Task<IActionResult> DeleteProfilePicture()
+    {
+        var userId = HttpUser.GetUserId(User);
+        if (userId == null) return Unauthorized();
+
+        var row = await _db.PersonalInfos.FirstOrDefaultAsync(p => p.UserId == userId);
+
+        if (row == null)
+            return NotFound(new { message = "Personal profile not found." });
+
+        row.ProfilePictureData = null;
+        row.ProfilePictureContentType = null;
+        row.ProfilePictureFileName = null;
+        row.ProfilePictureFileSizeBytes = null;
+        row.ProfilePictureUpdatedAt = null;
+        row.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new { message = "Profile picture deleted successfully." });
+    }
+
     [HttpGet("education")]
     public async Task<ActionResult<List<EducationOut>>> ListEducation()
     {
@@ -74,6 +196,7 @@ public sealed class ProfileController : ControllerBase
             .OrderBy(e => e.StartDate)
             .Select(e => EducationOut.From(e))
             .ToListAsync();
+
         return Ok(list);
     }
 
@@ -82,6 +205,7 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var now = DateTime.UtcNow;
         var e = new Education
         {
@@ -96,8 +220,10 @@ public sealed class ProfileController : ControllerBase
             CreatedAt = now,
             UpdatedAt = now
         };
+
         _db.Educations.Add(e);
         await _db.SaveChangesAsync();
+
         return Ok(EducationOut.From(e));
     }
 
@@ -106,6 +232,7 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var e = await _db.Educations.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId);
         if (e == null) return NotFound();
 
@@ -116,6 +243,7 @@ public sealed class ProfileController : ControllerBase
         e.EndDate = body.EndDate;
         e.Description = body.Description;
         e.UpdatedAt = DateTime.UtcNow;
+
         await _db.SaveChangesAsync();
         return Ok();
     }
@@ -125,10 +253,13 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var e = await _db.Educations.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId);
         if (e == null) return NotFound();
+
         _db.Educations.Remove(e);
         await _db.SaveChangesAsync();
+
         return NoContent();
     }
 
@@ -143,6 +274,7 @@ public sealed class ProfileController : ControllerBase
             .OrderByDescending(w => w.StartDate)
             .Select(w => WorkOut.From(w))
             .ToListAsync();
+
         return Ok(list);
     }
 
@@ -151,6 +283,7 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var now = DateTime.UtcNow;
         var w = new WorkExperience
         {
@@ -166,8 +299,10 @@ public sealed class ProfileController : ControllerBase
             CreatedAt = now,
             UpdatedAt = now
         };
+
         _db.WorkExperiences.Add(w);
         await _db.SaveChangesAsync();
+
         return Ok(WorkOut.From(w));
     }
 
@@ -176,6 +311,7 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var w = await _db.WorkExperiences.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId);
         if (w == null) return NotFound();
 
@@ -187,6 +323,7 @@ public sealed class ProfileController : ControllerBase
         w.CurrentlyWorking = body.CurrentlyWorking;
         w.Description = body.Description;
         w.UpdatedAt = DateTime.UtcNow;
+
         await _db.SaveChangesAsync();
         return Ok();
     }
@@ -196,10 +333,13 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var w = await _db.WorkExperiences.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId);
         if (w == null) return NotFound();
+
         _db.WorkExperiences.Remove(w);
         await _db.SaveChangesAsync();
+
         return NoContent();
     }
 
@@ -214,6 +354,7 @@ public sealed class ProfileController : ControllerBase
             .OrderBy(s => s.Name)
             .Select(s => SkillOut.From(s))
             .ToListAsync();
+
         return Ok(list);
     }
 
@@ -222,6 +363,7 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var now = DateTime.UtcNow;
         var s = new Skill
         {
@@ -232,8 +374,10 @@ public sealed class ProfileController : ControllerBase
             CreatedAt = now,
             UpdatedAt = now
         };
+
         _db.Skills.Add(s);
         await _db.SaveChangesAsync();
+
         return Ok(SkillOut.From(s));
     }
 
@@ -242,12 +386,14 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var s = await _db.Skills.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId);
         if (s == null) return NotFound();
 
         s.Name = body.Name ?? "";
         s.Level = body.Level ?? "";
         s.UpdatedAt = DateTime.UtcNow;
+
         await _db.SaveChangesAsync();
         return Ok();
     }
@@ -257,10 +403,13 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var s = await _db.Skills.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId);
         if (s == null) return NotFound();
+
         _db.Skills.Remove(s);
         await _db.SaveChangesAsync();
+
         return NoContent();
     }
 
@@ -275,6 +424,7 @@ public sealed class ProfileController : ControllerBase
             .OrderBy(l => l.Name)
             .Select(l => LanguageOut.From(l))
             .ToListAsync();
+
         return Ok(list);
     }
 
@@ -283,6 +433,7 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var now = DateTime.UtcNow;
         var l = new Language
         {
@@ -293,8 +444,10 @@ public sealed class ProfileController : ControllerBase
             CreatedAt = now,
             UpdatedAt = now
         };
+
         _db.Languages.Add(l);
         await _db.SaveChangesAsync();
+
         return Ok(LanguageOut.From(l));
     }
 
@@ -303,12 +456,14 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var l = await _db.Languages.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId);
         if (l == null) return NotFound();
 
         l.Name = body.Name ?? "";
         l.Level = body.Level ?? "";
         l.UpdatedAt = DateTime.UtcNow;
+
         await _db.SaveChangesAsync();
         return Ok();
     }
@@ -318,10 +473,13 @@ public sealed class ProfileController : ControllerBase
     {
         var userId = HttpUser.GetUserId(User);
         if (userId == null) return Unauthorized();
+
         var l = await _db.Languages.FirstOrDefaultAsync(x => x.Id == id && x.UserId == userId);
         if (l == null) return NotFound();
+
         _db.Languages.Remove(l);
         await _db.SaveChangesAsync();
+
         return NoContent();
     }
 }
@@ -348,6 +506,8 @@ public sealed class PersonalOut
     public string? Address { get; set; }
     public string? CountryOfResidence { get; set; }
     public string? PhoneNumber { get; set; }
+    public bool HasProfilePicture { get; set; }
+    public string? ProfilePictureUrl { get; set; }
 
     public static PersonalOut From(PersonalInfo p) => new()
     {
@@ -358,8 +518,17 @@ public sealed class PersonalOut
         Nationality = p.Nationality,
         Address = p.Address,
         CountryOfResidence = p.CountryOfResidence,
-        PhoneNumber = p.PhoneNumber
+        PhoneNumber = p.PhoneNumber,
+        HasProfilePicture = p.ProfilePictureData != null && p.ProfilePictureData.Length > 0,
+        ProfilePictureUrl = p.ProfilePictureData != null && p.ProfilePictureData.Length > 0
+            ? "/api/profile/personal/picture"
+            : null
     };
+}
+
+public sealed class UploadProfilePictureRequest
+{
+    public IFormFile? File { get; set; }
 }
 
 public sealed class EducationIn
@@ -441,7 +610,12 @@ public sealed class SkillOut
     public string Name { get; set; } = "";
     public string Level { get; set; } = "";
 
-    public static SkillOut From(Skill s) => new() { Id = s.Id, Name = s.Name, Level = s.Level };
+    public static SkillOut From(Skill s) => new()
+    {
+        Id = s.Id,
+        Name = s.Name,
+        Level = s.Level
+    };
 }
 
 public sealed class LanguageIn
@@ -456,5 +630,10 @@ public sealed class LanguageOut
     public string Name { get; set; } = "";
     public string Level { get; set; } = "";
 
-    public static LanguageOut From(Language l) => new() { Id = l.Id, Name = l.Name, Level = l.Level };
+    public static LanguageOut From(Language l) => new()
+    {
+        Id = l.Id,
+        Name = l.Name,
+        Level = l.Level
+    };
 }

@@ -15,6 +15,12 @@ public class PersonalInfo
     public string? CountryOfResidence { get; set; }
     public string? PhoneNumber { get; set; }
 
+    public byte[]? ProfilePictureData { get; set; }
+    public string? ProfilePictureContentType { get; set; }
+    public string? ProfilePictureFileName { get; set; }
+    public long? ProfilePictureFileSizeBytes { get; set; }
+    public DateTime? ProfilePictureUpdatedAt { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
