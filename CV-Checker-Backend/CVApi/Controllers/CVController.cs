@@ -83,6 +83,10 @@ public sealed class CVController : ControllerBase
         try
         {
             // 1. Save CV
+            var extractionToPersist = aiResult;
+            if (!string.IsNullOrWhiteSpace(aiResult?.Error))
+                extractionToPersist = BuildFallbackExtractionFromText(extractedText, aiResult.Error);
+
             var cv = new CV
             {
                 Id = Guid.NewGuid(),
@@ -93,9 +97,7 @@ public sealed class CVController : ControllerBase
                     ? "application/pdf"
                     : request.File.ContentType,
                 FileSizeBytes = request.File.Length,
-                Content = !string.IsNullOrWhiteSpace(aiResult?.Error)
-                    ? extractedText
-                    : JsonSerializer.Serialize(aiResult),
+                Content = JsonSerializer.Serialize(extractionToPersist ?? new CVExtractionResult()),
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -559,6 +561,47 @@ public sealed class CVController : ControllerBase
         }
 
         return textBuilder.ToString().Trim();
+    }
+
+    private static CVExtractionResult BuildFallbackExtractionFromText(string extractedText, string originalError)
+    {
+        if (string.IsNullOrWhiteSpace(extractedText))
+            return new CVExtractionResult { Error = originalError };
+
+        var lines = extractedText
+            .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+
+        var firstLine = lines.FirstOrDefault() ?? "Not found";
+        var fullName = Regex.IsMatch(firstLine, @"^[A-Za-z][A-Za-z\s\-'`]{2,60}$")
+            ? firstLine
+            : "Not found";
+
+        var emailMatch = Regex.Match(extractedText, @"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b");
+        var phoneMatch = Regex.Match(extractedText, @"(\+\d{1,3}[\s\-]?\(?\d+\)?(?:[\s\-]?\d+){5,}|\(?\d{2,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4})");
+
+        var skillHints = new List<string>();
+        var lowerText = extractedText.ToLowerInvariant();
+        if (lowerText.Contains("c#")) skillHints.Add("C#");
+        if (lowerText.Contains(".net")) skillHints.Add(".NET");
+        if (lowerText.Contains("sql")) skillHints.Add("SQL");
+        if (lowerText.Contains("python")) skillHints.Add("Python");
+        if (lowerText.Contains("javascript")) skillHints.Add("JavaScript");
+        if (lowerText.Contains("react")) skillHints.Add("React");
+        if (lowerText.Contains("azure")) skillHints.Add("Azure");
+
+        return new CVExtractionResult
+        {
+            FullName = fullName,
+            Email = emailMatch.Success ? emailMatch.Value : "Not found",
+            Phone = phoneMatch.Success ? phoneMatch.Value.Trim() : "Not found",
+            Skills = skillHints.Count > 0 ? string.Join(", ", skillHints.Distinct(StringComparer.OrdinalIgnoreCase)) : "Not found",
+            WorkExperience = lowerText.Contains("experience", StringComparison.Ordinal) ? extractedText : "Not found",
+            Education = lowerText.Contains("education", StringComparison.Ordinal) ? extractedText : "Not found",
+            Error = originalError
+        };
     }
 }
 
