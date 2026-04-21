@@ -52,9 +52,25 @@ namespace BusinessLogic.Services
                 .OrderByDescending(x => x.CreatedAt)
                 .FirstOrDefault();
 
-            if (latestCv != null && !string.IsNullOrWhiteSpace(latestCv.FilePath))
+            if (latestCv == null)
             {
+                throw new Exception("No CV found for this user.");
+            }
+
+            if (string.IsNullOrWhiteSpace(latestCv.FilePath))
+            {
+                throw new Exception("CV found, but FilePath is empty.");
+            }
+
+            if(latestCv != null && !string.IsNullOrWhiteSpace(latestCv.FilePath))
+{
                 extraction = await _cvExtractionRunner.ExtractFromFileAsync(latestCv.FilePath);
+
+                if (extraction == null)
+                    throw new Exception("Extraction result is null.");
+
+                if (!string.IsNullOrWhiteSpace(extraction.Error))
+                    throw new Exception($"Extraction failed: {extraction.Error}");
             }
 
             var dto = new GeneratedCvDTO
