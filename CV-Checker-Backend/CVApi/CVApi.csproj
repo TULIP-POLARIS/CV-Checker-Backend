@@ -23,4 +23,12 @@
     <ProjectReference Include="..\DAL\DAL.csproj" />
   </ItemGroup>
 
+	<ItemGroup>
+		<Content Include="..\PythonScripts\**\*">
+			<Link>PythonScripts\%(RecursiveDir)%(Filename)%(Extension)</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>Always</CopyToPublishDirectory>
+		</Content>
+	</ItemGroup>
+
 </Project>

@@ -30,7 +30,7 @@ namespace BusinessLogic.Services
             {
                 return new CVExtractionResult
                 {
-                    Error = $"Python script not found: {_scriptPath}"
+                    Error = $"Python script not found: {_scriptPath}. BaseDirectory: {AppContext.BaseDirectory}"
                 };
             }
 
@@ -149,9 +149,10 @@ namespace BusinessLogic.Services
         {
             var candidates = new[]
             {
-                Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "PythonScripts", "cv_extract.py")),
-                Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PythonScripts", "cv_extract.py"))
-            };
+        Path.Combine(AppContext.BaseDirectory, "PythonScripts", "cv_extract.py"),
+        Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "PythonScripts", "cv_extract.py")),
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PythonScripts", "cv_extract.py"))
+    };
 
             foreach (var candidate in candidates)
             {
@@ -159,7 +160,6 @@ namespace BusinessLogic.Services
                     return candidate;
             }
 
-            // Keeps previous behavior in the error message if not found.
             return candidates[0];
         }
     }
