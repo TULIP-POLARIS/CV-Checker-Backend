@@ -5,6 +5,8 @@ using DAL;
 using DAL.Api;
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+
 
 namespace BusinessLogic.Services
 {
@@ -12,16 +14,14 @@ namespace BusinessLogic.Services
     {
         private readonly ApiContext _context;
         private readonly ICVService _cvService;
-        private readonly CVExtractionRunner _cvExtractionRunner;
 
         public CvGenerationService(
             ApiContext context,
-            ICVService cvService,
-            CVExtractionRunner cvExtractionRunner)
+            ICVService cvService)
+         
         {
             _context = context;
             _cvService = cvService;
-            _cvExtractionRunner = cvExtractionRunner;
         }
 
         public async Task<GeneratedCvDTO> BuildGeneratedCvAsync(Guid userId)
@@ -52,25 +52,21 @@ namespace BusinessLogic.Services
                 .OrderByDescending(x => x.CreatedAt)
                 .FirstOrDefault();
 
-            if (latestCv == null)
+            if (latestCv != null && !string.IsNullOrWhiteSpace(latestCv.Content))
             {
-                throw new Exception("No CV found for this user.");
-            }
-
-            if (string.IsNullOrWhiteSpace(latestCv.FilePath))
-            {
-                throw new Exception("CV found, but FilePath is empty.");
-            }
-
-            if(latestCv != null && !string.IsNullOrWhiteSpace(latestCv.FilePath))
-{
-                extraction = await _cvExtractionRunner.ExtractFromFileAsync(latestCv.FilePath);
-
-                if (extraction == null)
-                    throw new Exception("Extraction result is null.");
-
-                if (!string.IsNullOrWhiteSpace(extraction.Error))
-                    throw new Exception($"Extraction failed: {extraction.Error}");
+                try
+                {
+                    extraction = JsonSerializer.Deserialize<CVExtractionResult>(
+                        latestCv.Content,
+                        new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+                }
+                catch (JsonException)
+                {
+                    extraction = null;
+                }
             }
 
             var dto = new GeneratedCvDTO
