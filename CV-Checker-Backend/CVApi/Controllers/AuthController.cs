@@ -152,12 +152,39 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("forgot-password")]
-    public IActionResult ForgotPassword([FromBody] ForgotPasswordRequest request)
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Email))
             return BadRequest("Email is required.");
 
-        return Ok(new { message = "If the email exists, you will receive reset instructions." });
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var exists = await _db.Users.AsNoTracking()
+            .AnyAsync(u => u.Email != null && u.Email.ToLower() == normalizedEmail);
+
+        if (!exists)
+            return NotFound(new { message = "Email does not exist.", userExists = false });
+
+        return Ok(new { message = "User exists. You can proceed to change password.", userExists = true });
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword([FromQuery] string email, [FromBody] ResetPasswordRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(request.NewPassword))
+            return BadRequest("Email and new password are required.");
+
+        var normalizedEmail = email.Trim().ToLowerInvariant();
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == normalizedEmail);
+
+        if (user == null)
+            return NotFound(new { message = "Email does not exist." });
+
+        user.PasswordHash = _passwordHasher.HashPassword(user, request.NewPassword);
+        user.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new { message = "Password changed successfully." });
     }
 
     private (string token, DateTime expiresAtUtc) CreateJwt(User user)

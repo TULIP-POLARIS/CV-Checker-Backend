@@ -1,12 +1,15 @@
 ﻿using BusinessLogic.DTOs;
 using BusinessLogic.Interface;
 using BusinessLogic.Services;
+using CVApi.Contracts.Auth;
 using CVApi.Controllers;
 using DAL.Api;
 using Domain.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 
 namespace CVApi.Tests;
 
@@ -198,6 +201,106 @@ public class CVComparisonControllerTests
         // Assert
         var ok = Assert.IsType<OkObjectResult>(action.Result);
         Assert.NotNull(ok.Value);
+    }
+}
+
+public class AuthControllerTests
+{
+    [Fact]
+    public async Task ForgotPassword_ReturnsOk_WhenEmailExists()
+    {
+        await using var db = BuildDbContext();
+        db.Users.Add(new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "existing@test.com",
+            PasswordHash = "hash"
+        });
+        await db.SaveChangesAsync();
+
+        var controller = BuildAuthController(db);
+        var action = await controller.ForgotPassword(new ForgotPasswordRequest { Email = "existing@test.com" });
+
+        var ok = Assert.IsType<OkObjectResult>(action);
+        var userExists = (bool)(ok.Value!.GetType().GetProperty("userExists")!.GetValue(ok.Value)!);
+        Assert.True(userExists);
+    }
+
+    [Fact]
+    public async Task ForgotPassword_ReturnsNotFound_WhenEmailDoesNotExist()
+    {
+        await using var db = BuildDbContext();
+        var controller = BuildAuthController(db);
+
+        var action = await controller.ForgotPassword(new ForgotPasswordRequest { Email = "missing@test.com" });
+
+        var notFound = Assert.IsType<NotFoundObjectResult>(action);
+        var userExists = (bool)(notFound.Value!.GetType().GetProperty("userExists")!.GetValue(notFound.Value)!);
+        Assert.False(userExists);
+    }
+
+    [Fact]
+    public async Task ResetPassword_ChangesStoredPassword_WhenEmailExists()
+    {
+        await using var db = BuildDbContext();
+        var seededUser = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "existing@test.com",
+            PasswordHash = "old-hash"
+        };
+        db.Users.Add(seededUser);
+        await db.SaveChangesAsync();
+
+        var controller = BuildAuthController(db);
+        var action = await controller.ResetPassword("existing@test.com", new ResetPasswordRequest
+        {
+            NewPassword = "NewPassword123!"
+        });
+
+        Assert.IsType<OkObjectResult>(action);
+        var updatedUser = await db.Users.FirstAsync(u => u.Email == "existing@test.com");
+        Assert.NotEqual("old-hash", updatedUser.PasswordHash);
+
+        var hasher = new PasswordHasher<User>();
+        var verify = hasher.VerifyHashedPassword(updatedUser, updatedUser.PasswordHash!, "NewPassword123!");
+        Assert.NotEqual(PasswordVerificationResult.Failed, verify);
+    }
+
+    [Fact]
+    public async Task ResetPassword_ReturnsNotFound_WhenEmailDoesNotExist()
+    {
+        await using var db = BuildDbContext();
+        var controller = BuildAuthController(db);
+
+        var action = await controller.ResetPassword("missing@test.com", new ResetPasswordRequest
+        {
+            NewPassword = "NewPassword123!"
+        });
+
+        Assert.IsType<NotFoundObjectResult>(action);
+    }
+
+    private static ApiContext BuildDbContext()
+    {
+        var dbOptions = new DbContextOptionsBuilder<ApiContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+
+        return new ApiContext(dbOptions);
+    }
+
+    private static AuthController BuildAuthController(ApiContext db)
+    {
+        var jwtOptions = Options.Create(new JwtOptions
+        {
+            Key = "this-is-a-test-key-with-at-least-32-characters",
+            Issuer = "test",
+            Audience = "test",
+            ExpiresMinutes = 60
+        });
+
+        return new AuthController(db, new PasswordHasher<User>(), jwtOptions);
     }
 }
 
