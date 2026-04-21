@@ -7,13 +7,12 @@ namespace BusinessLogic.Services
 {
     public class CVExtractionRunner
     {
-        private readonly string _pythonExe;
-        private readonly string _pythonArgsPrefix;
+        private readonly IReadOnlyList<PythonCommand> _pythonCommands;
         private readonly string _scriptPath;
 
         public CVExtractionRunner()
         {
-            (_pythonExe, _pythonArgsPrefix) = ResolvePythonCommand();
+            _pythonCommands = ResolvePythonCommands();
             _scriptPath = ResolveScriptPath();
         }
 
@@ -35,76 +34,149 @@ namespace BusinessLogic.Services
                 };
             }
 
-            try
+            string? lastError = null;
+
+            foreach (var command in _pythonCommands)
             {
-                var processStartInfo = new ProcessStartInfo
+                try
                 {
-                    FileName = _pythonExe,
-                    Arguments = string.IsNullOrWhiteSpace(_pythonArgsPrefix)
-                        ? $"\"{_scriptPath}\" \"{filePath}\""
-                        : $"{_pythonArgsPrefix} \"{_scriptPath}\" \"{filePath}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    StandardOutputEncoding = Encoding.UTF8,
-                    StandardErrorEncoding = Encoding.UTF8
-                };
-
-                using var process = new Process { StartInfo = processStartInfo };
-
-                process.Start();
-
-                string stdout = await process.StandardOutput.ReadToEndAsync();
-                string stderr = await process.StandardError.ReadToEndAsync();
-
-                await process.WaitForExitAsync();
-
-                if (process.ExitCode != 0)
-                {
-                    return new CVExtractionResult
+                    var processStartInfo = new ProcessStartInfo
                     {
-                        Error = $"Python process failed: {(string.IsNullOrWhiteSpace(stderr) ? stdout : stderr)}"
+                        FileName = command.Executable,
+                        Arguments = string.IsNullOrWhiteSpace(command.ArgsPrefix)
+                            ? $"\"{_scriptPath}\" \"{filePath}\""
+                            : $"{command.ArgsPrefix} \"{_scriptPath}\" \"{filePath}\"",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        StandardOutputEncoding = Encoding.UTF8,
+                        StandardErrorEncoding = Encoding.UTF8
+                    };
+
+                    using var process = new Process { StartInfo = processStartInfo };
+
+                    process.Start();
+
+                    string stdout = await process.StandardOutput.ReadToEndAsync();
+                    string stderr = await process.StandardError.ReadToEndAsync();
+
+                    await process.WaitForExitAsync();
+
+                    if (process.ExitCode != 0)
+                    {
+                        var processError = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
+                        lastError = $"[{command.DisplayName}] {processError}";
+
+                        if (IsLikelyIncompatiblePython(processError))
+                            continue;
+
+                        return new CVExtractionResult
+                        {
+                            Error = $"Python process failed: {lastError}"
+                        };
+                    }
+
+                    if (string.IsNullOrWhiteSpace(stdout))
+                    {
+                        lastError = $"[{command.DisplayName}] Python script returned empty output.";
+                        continue;
+                    }
+
+                    string jsonOutput = ExtractJsonFromOutput(stdout);
+
+                    if (string.IsNullOrWhiteSpace(jsonOutput))
+                    {
+                        lastError = $"[{command.DisplayName}] Could not find JSON in Python output. Raw output: {stdout}";
+                        continue;
+                    }
+
+                    var result = JsonSerializer.Deserialize<CVExtractionResult>(
+                        jsonOutput,
+                        new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+
+                    return result ?? new CVExtractionResult
+                    {
+                        Error = $"[{command.DisplayName}] Failed to deserialize extraction result."
                     };
                 }
-
-                if (string.IsNullOrWhiteSpace(stdout))
+                catch (Exception ex)
                 {
-                    return new CVExtractionResult
-                    {
-                        Error = "Python script returned empty output."
-                    };
+                    lastError = $"[{command.DisplayName}] {ex.Message}";
                 }
+            }
 
-                string jsonOutput = ExtractJsonFromOutput(stdout);
+            return new CVExtractionResult
+            {
+                Error = $"Python process failed: {lastError ?? "No compatible Python 3 interpreter found."}"
+            };
+        }
 
-                if (string.IsNullOrWhiteSpace(jsonOutput))
+        public async Task<PythonHealthResult> GetPythonHealthAsync()
+        {
+            var probes = new List<PythonProbeResult>();
+
+            foreach (var command in _pythonCommands)
+            {
+                try
                 {
-                    return new CVExtractionResult
+                    var processStartInfo = new ProcessStartInfo
                     {
-                        Error = $"Could not find JSON in Python output. Raw output: {stdout}"
+                        FileName = command.Executable,
+                        Arguments = string.IsNullOrWhiteSpace(command.ArgsPrefix)
+                            ? "--version"
+                            : $"{command.ArgsPrefix} --version",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        StandardOutputEncoding = Encoding.UTF8,
+                        StandardErrorEncoding = Encoding.UTF8
                     };
-                }
 
-                var result = JsonSerializer.Deserialize<CVExtractionResult>(
-                    jsonOutput,
-                    new JsonSerializerOptions
+                    using var process = new Process { StartInfo = processStartInfo };
+                    process.Start();
+
+                    var stdout = await process.StandardOutput.ReadToEndAsync();
+                    var stderr = await process.StandardError.ReadToEndAsync();
+                    await process.WaitForExitAsync();
+
+                    var output = string.IsNullOrWhiteSpace(stdout) ? stderr : stdout;
+                    var versionText = output.Trim();
+                    var isPython3 = versionText.StartsWith("Python 3.", StringComparison.OrdinalIgnoreCase);
+
+                    probes.Add(new PythonProbeResult
                     {
-                        PropertyNameCaseInsensitive = true
+                        Command = command.DisplayName,
+                        ExitCode = process.ExitCode,
+                        VersionOutput = versionText,
+                        IsPython3 = isPython3,
+                        IsHealthy = process.ExitCode == 0 && isPython3
                     });
+                }
+                catch (Exception ex)
+                {
+                    probes.Add(new PythonProbeResult
+                    {
+                        Command = command.DisplayName,
+                        ExitCode = -1,
+                        VersionOutput = ex.Message,
+                        IsPython3 = false,
+                        IsHealthy = false
+                    });
+                }
+            }
 
-                return result ?? new CVExtractionResult
-                {
-                    Error = "Failed to deserialize extraction result."
-                };
-            }
-            catch (Exception ex)
+            return new PythonHealthResult
             {
-                return new CVExtractionResult
-                {
-                    Error = ex.Message
-                };
-            }
+                ScriptPath = _scriptPath,
+                ScriptFound = File.Exists(_scriptPath),
+                AnyHealthyPython3 = probes.Any(x => x.IsHealthy),
+                Probes = probes
+            };
         }
 
         private static string ExtractJsonFromOutput(string output)
@@ -127,11 +199,12 @@ namespace BusinessLogic.Services
             return string.Empty;
         }
 
-        private static (string executable, string argsPrefix) ResolvePythonCommand()
+        private static IReadOnlyList<PythonCommand> ResolvePythonCommands()
         {
+            var commands = new List<PythonCommand>();
             var configured = Environment.GetEnvironmentVariable("PYTHON_EXE");
             if (!string.IsNullOrWhiteSpace(configured))
-                return (configured, string.Empty);
+                commands.Add(new PythonCommand(configured, string.Empty, "PYTHON_EXE"));
 
             var candidates = new[]
             {
@@ -142,13 +215,34 @@ namespace BusinessLogic.Services
             foreach (var candidate in candidates)
             {
                 if (File.Exists(candidate))
-                    return (candidate, string.Empty);
+                    commands.Add(new PythonCommand(candidate, string.Empty, candidate));
             }
 
             if (OperatingSystem.IsWindows())
-                return ("py", "-3");
+            {
+                commands.Add(new PythonCommand("py", "-3", "py -3"));
+                commands.Add(new PythonCommand("python", string.Empty, "python"));
+            }
+            else
+            {
+                commands.Add(new PythonCommand("python3", string.Empty, "python3"));
+                commands.Add(new PythonCommand("python", string.Empty, "python"));
+            }
 
-            return ("python3", string.Empty);
+            return commands
+                .GroupBy(c => $"{c.Executable}|{c.ArgsPrefix}", StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
+        }
+
+        private static bool IsLikelyIncompatiblePython(string error)
+        {
+            if (string.IsNullOrWhiteSpace(error))
+                return false;
+
+            var normalized = error.ToLowerInvariant();
+            return normalized.Contains("future feature annotations is not defined", StringComparison.Ordinal)
+                || normalized.Contains("syntaxerror", StringComparison.Ordinal);
         }
 
         private static string ResolveScriptPath()
@@ -167,6 +261,25 @@ namespace BusinessLogic.Services
             }
 
             return candidates[0];
+        }
+
+        private sealed record PythonCommand(string Executable, string ArgsPrefix, string DisplayName);
+
+        public sealed class PythonHealthResult
+        {
+            public string ScriptPath { get; set; } = string.Empty;
+            public bool ScriptFound { get; set; }
+            public bool AnyHealthyPython3 { get; set; }
+            public List<PythonProbeResult> Probes { get; set; } = new();
+        }
+
+        public sealed class PythonProbeResult
+        {
+            public string Command { get; set; } = string.Empty;
+            public int ExitCode { get; set; }
+            public string VersionOutput { get; set; } = string.Empty;
+            public bool IsPython3 { get; set; }
+            public bool IsHealthy { get; set; }
         }
     }
 }
