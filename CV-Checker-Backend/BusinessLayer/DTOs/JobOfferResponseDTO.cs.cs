@@ -1,10 +1,8 @@
-using System.Text.Json.Serialization;
-
-namespace Domain.Entities
+﻿namespace BusinessLogic.DTOs
 {
-    public class JobOffer
+    public class JobOfferResponseDTO
     {
-        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid Id { get; set; }
         public Guid UserId { get; set; }
         public string Title { get; set; } = default!;
         public string? Company { get; set; }
@@ -13,13 +11,7 @@ namespace Domain.Entities
         public string? Location { get; set; }
         public Guid? SourceFileId { get; set; }
         public string TextContent { get; set; } = default!;
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
-
-        [JsonIgnore]
-        public User? OwnerUser { get; set; }
-
-        [JsonIgnore]
-        public List<CVComparison> Comparisons { get; set; } = new();
     }
-}
+}   

@@ -57,7 +57,7 @@ namespace CVApi.Controllers
 
         // POST /api/compare-cv/auto
         [HttpPost("auto")]
-        public async Task<ActionResult<CVComparison>> CompareCVAuto([FromBody] CreateAutoCVComparisonDTO dto)
+        public async Task<ActionResult<object>> CompareCVAuto([FromBody] CreateAutoCVComparisonDTO dto)
         {
             try
             {
@@ -74,10 +74,10 @@ namespace CVApi.Controllers
             }
         }
 
-        // POST /api/compare-cv/auto (multipart/form-data)
-        [HttpPost("auto")]
+        // POST /api/compare-cv/auto-upload
+        [HttpPost("auto-upload")]
         [Consumes("multipart/form-data")]
-        public async Task<ActionResult<CVComparison>> CompareCVAutoWithCv([FromForm] CreateAutoCVComparisonFormDTO form)
+        public async Task<ActionResult<object>> CompareCVAutoWithCv([FromForm] CreateAutoCVComparisonFormDTO form)
         {
             try
             {
@@ -291,4 +291,3 @@ namespace CVApi.Controllers
         public IFormFile? CVFile { get; set; }
     }
 }
-

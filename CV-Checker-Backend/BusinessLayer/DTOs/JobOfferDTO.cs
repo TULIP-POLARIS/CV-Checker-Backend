@@ -18,4 +18,3 @@ namespace BusinessLogic.DTOs
         public string? Location { get; set; }
     }
 }
-

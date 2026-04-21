@@ -4,7 +4,7 @@ using DAL.Api;
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
-namespace BusinessLayer.Services
+namespace BusinessLogic.Services
 {
     public class CVGenerationService
     {
