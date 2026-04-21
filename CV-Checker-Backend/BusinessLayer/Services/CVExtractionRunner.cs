@@ -8,11 +8,12 @@ namespace BusinessLogic.Services
     public class CVExtractionRunner
     {
         private readonly string _pythonExe;
+        private readonly string _pythonArgsPrefix;
         private readonly string _scriptPath;
 
         public CVExtractionRunner()
         {
-            _pythonExe = ResolvePythonExecutable();
+            (_pythonExe, _pythonArgsPrefix) = ResolvePythonCommand();
             _scriptPath = ResolveScriptPath();
         }
 
@@ -39,7 +40,9 @@ namespace BusinessLogic.Services
                 var processStartInfo = new ProcessStartInfo
                 {
                     FileName = _pythonExe,
-                    Arguments = $"\"{_scriptPath}\" \"{filePath}\"",
+                    Arguments = string.IsNullOrWhiteSpace(_pythonArgsPrefix)
+                        ? $"\"{_scriptPath}\" \"{filePath}\""
+                        : $"{_pythonArgsPrefix} \"{_scriptPath}\" \"{filePath}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -124,11 +127,11 @@ namespace BusinessLogic.Services
             return string.Empty;
         }
 
-        private static string ResolvePythonExecutable()
+        private static (string executable, string argsPrefix) ResolvePythonCommand()
         {
             var configured = Environment.GetEnvironmentVariable("PYTHON_EXE");
             if (!string.IsNullOrWhiteSpace(configured))
-                return configured;
+                return (configured, string.Empty);
 
             var candidates = new[]
             {
@@ -139,10 +142,13 @@ namespace BusinessLogic.Services
             foreach (var candidate in candidates)
             {
                 if (File.Exists(candidate))
-                    return candidate;
+                    return (candidate, string.Empty);
             }
 
-            return "python";
+            if (OperatingSystem.IsWindows())
+                return ("py", "-3");
+
+            return ("python3", string.Empty);
         }
 
         private static string ResolveScriptPath()
