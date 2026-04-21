@@ -2,11 +2,10 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional
 
-from pypdf import PdfReader
+from PyPDF2 import PdfReader
 from docx import Document
-from sentence_transformers import SentenceTransformer, util
 
 
 def read_txt(file_path: Path) -> str:
@@ -16,9 +15,14 @@ def read_txt(file_path: Path) -> str:
 def read_pdf(file_path: Path) -> str:
     reader = PdfReader(str(file_path))
     pages = []
+
     for page in reader.pages:
-        text = page.extract_text() or ""
+        try:
+            text = page.extract_text() or ""
+        except Exception:
+            text = ""
         pages.append(text)
+
     return "\n".join(pages)
 
 
@@ -29,56 +33,27 @@ def read_docx(file_path: Path) -> str:
 
 def read_cv(file_path: Path) -> str:
     suffix = file_path.suffix.lower()
+
     if suffix == ".txt":
         return read_txt(file_path)
     if suffix == ".pdf":
         return read_pdf(file_path)
     if suffix == ".docx":
         return read_docx(file_path)
+
     raise ValueError("Unsupported file type. Use .txt, .pdf, or .docx")
 
 
 def clean_text(text: str) -> str:
     text = text.replace("\xa0", " ")
     text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{2,}", "\n\n", text)
+    text = re.sub(r"\r\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
 
-def split_into_chunks(text: str, max_words: int = 120, overlap: int = 25) -> List[str]:
-    paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
-    chunks: List[str] = []
-    current_words: List[str] = []
-
-    for para in paragraphs:
-        para_words = para.split()
-
-        if len(current_words) + len(para_words) <= max_words:
-            current_words.extend(para_words)
-        else:
-            if current_words:
-                chunks.append(" ".join(current_words))
-                current_words = current_words[-overlap:] if overlap < len(current_words) else current_words
-
-            current_words.extend(para_words)
-
-            while len(current_words) > max_words:
-                chunks.append(" ".join(current_words[:max_words]))
-                current_words = current_words[max_words - overlap:]
-
-    if current_words:
-        chunks.append(" ".join(current_words))
-
-    seen = set()
-    final_chunks = []
-
-    for chunk in chunks:
-        normalized = chunk.strip().lower()
-        if len(normalized) > 25 and normalized not in seen:
-            seen.add(normalized)
-            final_chunks.append(chunk)
-
-    return final_chunks
+def get_lines(text: str) -> List[str]:
+    return [line.strip() for line in text.splitlines() if line.strip()]
 
 
 def extract_email(text: str) -> str:
@@ -91,10 +66,12 @@ def extract_phone(text: str) -> str:
         r"(\+\d{1,3}[\s\-]?\(?\d+\)?(?:[\s\-]?\d+){5,})",
         r"(\(?\d{2,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4})",
     ]
+
     for pattern in patterns:
         match = re.search(pattern, text)
         if match:
             return match.group(0).strip()
+
     return "Not found"
 
 
@@ -108,152 +85,150 @@ def extract_github(text: str) -> str:
     return match.group(0) if match else "Not found"
 
 
-def semantic_extract(
-    model: SentenceTransformer,
-    chunks: List[str],
-    keyword_queries: Dict[str, List[str]],
-    score_threshold: float = 0.35,
-    top_k: int = 3,
-) -> Dict[str, str]:
-    results: Dict[str, str] = {}
-
-    if not chunks:
-        return {key: "Not found" for key in keyword_queries}
-
-    chunk_embeddings = model.encode(chunks, convert_to_tensor=True, normalize_embeddings=True)
-
-    for keyword, queries in keyword_queries.items():
-        best_matches: List[Tuple[float, str]] = []
-
-        for query in queries:
-            query_embedding = model.encode(query, convert_to_tensor=True, normalize_embeddings=True)
-            scores = util.cos_sim(query_embedding, chunk_embeddings)[0]
-
-            top_results = scores.topk(k=min(top_k, len(chunks)))
-            for score, idx in zip(top_results.values.tolist(), top_results.indices.tolist()):
-                if score >= score_threshold:
-                    best_matches.append((float(score), chunks[idx]))
-
-        if not best_matches:
-            results[keyword] = "Not found"
-            continue
-
-        best_matches.sort(key=lambda x: x[0], reverse=True)
-        selected_texts = []
-        seen = set()
-
-        for _, text in best_matches:
-            norm = text.strip().lower()
-            if norm not in seen:
-                seen.add(norm)
-                selected_texts.append(text)
-            if len(selected_texts) == 2:
-                break
-
-        results[keyword] = " | ".join(selected_texts)
-
-    return results
-
-
-def get_keyword_queries() -> Dict[str, List[str]]:
-    return {
-        "full_name": [
-            "candidate full name",
-            "name of the applicant",
-            "person name at top of cv"
-        ],
-        "job_title": [
-            "current job title",
-            "target role or professional title",
-            "headline under the name"
-        ],
-        "location": [
-            "candidate location",
-            "city country address",
-            "where the applicant is based"
-        ],
-        "professional_summary": [
-            "professional summary profile",
-            "about me summary",
-            "career overview"
-        ],
-        "skills": [
-            "technical skills and tools",
-            "core competencies",
-            "skills section"
-        ],
-        "work_experience": [
-            "work experience employment history",
-            "professional experience",
-            "past roles and responsibilities"
-        ],
-        "education": [
-            "education academic background",
-            "degree university college",
-            "studies qualifications"
-        ],
-        "certifications": [
-            "certifications licenses training",
-            "professional certificates",
-            "accreditations"
-        ],
-        "projects": [
-            "projects portfolio achievements",
-            "relevant projects",
-            "case studies or implementations"
-        ],
-        "languages": [
-            "languages spoken",
-            "language proficiency",
-            "multilingual skills"
-        ],
-        "achievements": [
-            "awards accomplishments achievements",
-            "notable results",
-            "business impact and outcomes"
-        ],
-        "work_authorization": [
-            "work permit visa authorization",
-            "right to work",
-            "employment eligibility"
-        ],
-        "availability": [
-            "notice period availability start date",
-            "when can candidate start",
-            "available from"
-        ],
-    }
-
-
 def guess_name_from_top(text: str) -> str:
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if not lines:
-        return "Not found"
+    lines = get_lines(text)[:6]
 
-    first = lines[0]
-    if 2 <= len(first.split()) <= 4 and re.fullmatch(r"[A-Za-z?-?' -]+", first):
-        return first
+    for line in lines:
+        words = line.split()
+        if 2 <= len(words) <= 4 and re.fullmatch(r"[A-Za-zÀ-ÿ' -]+", line):
+            lowered = line.lower()
+            blocked = [
+                "curriculum",
+                "resume",
+                "cv",
+                "profile",
+                "about",
+                "summary",
+                "experience",
+                "education",
+                "skills",
+            ]
+            if not any(b in lowered for b in blocked):
+                return line
 
     return "Not found"
 
 
-def postprocess_results(raw_text: str, results: Dict[str, str]) -> Dict[str, str]:
-    regex_fields = {
-        "email": extract_email(raw_text),
-        "phone": extract_phone(raw_text),
-        "linkedin": extract_linkedin(raw_text),
-        "github": extract_github(raw_text),
+def guess_job_title_from_top(text: str, full_name: str) -> str:
+    lines = get_lines(text)[:8]
+
+    for line in lines:
+        if line == full_name:
+            continue
+
+        lowered = line.lower()
+        if len(line) > 60:
+            continue
+
+        blocked = [
+            "@", "linkedin.com", "github.com", "education", "experience", "skills",
+            "projects", "certifications", "languages", "summary"
+        ]
+        if any(b in lowered for b in blocked):
+            continue
+
+        if re.search(r"\d", line):
+            continue
+
+        if 2 <= len(line.split()) <= 8:
+            return line
+
+    return "Not found"
+
+
+def guess_location(text: str) -> str:
+    lines = get_lines(text)[:10]
+
+    for line in lines:
+        lowered = line.lower()
+
+        if "linkedin.com" in lowered or "github.com" in lowered or "@" in line:
+            continue
+
+        if re.search(r"\+\d", line):
+            continue
+
+        # simple "City, Country" or short location line
+        if len(line) <= 50 and ("," in line or 1 <= len(line.split()) <= 4):
+            if re.fullmatch(r"[A-Za-zÀ-ÿ0-9,.\- ]+", line):
+                return line
+
+    return "Not found"
+
+
+def find_section(lines: List[str], possible_titles: List[str]) -> str:
+    normalized_titles = [t.lower() for t in possible_titles]
+
+    start_index = -1
+    for i, line in enumerate(lines):
+        line_norm = line.strip().lower().rstrip(":")
+        if line_norm in normalized_titles:
+            start_index = i + 1
+            break
+
+    if start_index == -1:
+        return "Not found"
+
+    collected = []
+    for j in range(start_index, len(lines)):
+        current = lines[j].strip()
+        current_norm = current.lower().rstrip(":")
+
+        if j > start_index:
+            if is_section_heading(current_norm):
+                break
+
+        collected.append(current)
+
+    result = " ".join(collected).strip()
+    return result if result else "Not found"
+
+
+def is_section_heading(line: str) -> bool:
+    known_headings = [
+        "profile",
+        "professional summary",
+        "summary",
+        "about me",
+        "about",
+        "skills",
+        "technical skills",
+        "core competencies",
+        "work experience",
+        "experience",
+        "professional experience",
+        "employment history",
+        "education",
+        "academic background",
+        "certifications",
+        "licenses",
+        "projects",
+        "languages",
+        "achievements",
+        "awards",
+        "work authorization",
+        "availability",
+        "contact",
+    ]
+
+    return line in known_headings
+
+
+def extract_sections(text: str) -> Dict[str, str]:
+    lines = get_lines(text)
+
+    return {
+        "professional_summary": find_section(lines, ["professional summary", "summary", "about me", "profile"]),
+        "skills": find_section(lines, ["skills", "technical skills", "core competencies"]),
+        "work_experience": find_section(lines, ["work experience", "experience", "professional experience", "employment history"]),
+        "education": find_section(lines, ["education", "academic background"]),
+        "certifications": find_section(lines, ["certifications", "licenses"]),
+        "projects": find_section(lines, ["projects"]),
+        "languages": find_section(lines, ["languages"]),
+        "achievements": find_section(lines, ["achievements", "awards"]),
+        "work_authorization": find_section(lines, ["work authorization"]),
+        "availability": find_section(lines, ["availability"]),
     }
-
-    final_results = dict(results)
-    final_results.update(regex_fields)
-
-    if final_results.get("full_name", "Not found") == "Not found":
-        guessed = guess_name_from_top(raw_text)
-        if guessed != "Not found":
-            final_results["full_name"] = guessed
-
-    return final_results
 
 
 def to_pascal_case_dict(data: Dict[str, str]) -> Dict[str, str]:
@@ -280,6 +255,33 @@ def to_pascal_case_dict(data: Dict[str, str]) -> Dict[str, str]:
     return {mapping.get(k, k): v for k, v in data.items()}
 
 
+def extract_cv_data(raw_text: str) -> Dict[str, str]:
+    full_name = guess_name_from_top(raw_text)
+    sections = extract_sections(raw_text)
+
+    result = {
+        "full_name": full_name,
+        "job_title": guess_job_title_from_top(raw_text, full_name),
+        "location": guess_location(raw_text),
+        "professional_summary": sections.get("professional_summary", "Not found"),
+        "skills": sections.get("skills", "Not found"),
+        "work_experience": sections.get("work_experience", "Not found"),
+        "education": sections.get("education", "Not found"),
+        "certifications": sections.get("certifications", "Not found"),
+        "projects": sections.get("projects", "Not found"),
+        "languages": sections.get("languages", "Not found"),
+        "achievements": sections.get("achievements", "Not found"),
+        "work_authorization": sections.get("work_authorization", "Not found"),
+        "availability": sections.get("availability", "Not found"),
+        "email": extract_email(raw_text),
+        "phone": extract_phone(raw_text),
+        "linkedin": extract_linkedin(raw_text),
+        "github": extract_github(raw_text),
+    }
+
+    return to_pascal_case_dict(result)
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         print(json.dumps({"Error": "Usage: python cv_extract.py <path_to_cv>"}))
@@ -288,7 +290,7 @@ def main() -> None:
     file_path = Path(sys.argv[1])
 
     if not file_path.exists():
-        print(json.dumps({"Error": f"File not found: {file_path}"}))
+        print(json.dumps({"Error": "File not found: {0}".format(file_path)}))
         sys.exit(1)
 
     try:
@@ -299,22 +301,7 @@ def main() -> None:
             print(json.dumps({"Error": "No readable text was extracted from the CV."}))
             sys.exit(1)
 
-        chunks = split_into_chunks(raw_text, max_words=120, overlap=25)
-
-        model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-        keyword_queries = get_keyword_queries()
-
-        semantic_results = semantic_extract(
-            model=model,
-            chunks=chunks,
-            keyword_queries=keyword_queries,
-            score_threshold=0.35,
-            top_k=3,
-        )
-
-        final_results = postprocess_results(raw_text, semantic_results)
-        final_results = to_pascal_case_dict(final_results)
-
+        final_results = extract_cv_data(raw_text)
         print(json.dumps(final_results, ensure_ascii=False))
     except Exception as ex:
         print(json.dumps({"Error": str(ex)}))

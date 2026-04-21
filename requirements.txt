@@ -1,4 +1,4 @@
 sentence-transformers
-pypdf
-python-docx
 torch
+PyPDF2==2.12.1
+python-docx==0.8.11

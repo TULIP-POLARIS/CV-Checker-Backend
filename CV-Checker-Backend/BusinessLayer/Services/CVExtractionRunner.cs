@@ -221,12 +221,10 @@ namespace BusinessLogic.Services
             if (OperatingSystem.IsWindows())
             {
                 commands.Add(new PythonCommand("py", "-3", "py -3"));
-                commands.Add(new PythonCommand("python", string.Empty, "python"));
             }
             else
             {
                 commands.Add(new PythonCommand("python3", string.Empty, "python3"));
-                commands.Add(new PythonCommand("python", string.Empty, "python"));
             }
 
             return commands
