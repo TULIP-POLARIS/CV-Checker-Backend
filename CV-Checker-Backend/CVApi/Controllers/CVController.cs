@@ -319,7 +319,7 @@ public sealed class CVController : ControllerBase
         var skills = await _db.Skills.AsNoTracking().Where(s => s.UserId == userId).ToListAsync();
         var extraction = await GetLatestExtractionResultAsync(userId);
 
-        var hasProfileInfo = personal != null || edu.Count > 0 || work.Count > 0 || skills.Count > 0;
+        var hasProfileInfo = HasMeaningfulProfileInfo(personal, edu.Count, work.Count, skills.Count);
         var useProfileData = hasProfileInfo;
 
         var aiFallbackSkills = useProfileData
@@ -602,6 +602,24 @@ public sealed class CVController : ControllerBase
             Education = lowerText.Contains("education", StringComparison.Ordinal) ? extractedText : "Not found",
             Error = originalError
         };
+    }
+
+    private static bool HasMeaningfulProfileInfo(PersonalInfo? personal, int educationCount, int workCount, int skillsCount)
+    {
+        if (skillsCount > 0 || educationCount > 0 || workCount > 0)
+            return true;
+
+        if (personal == null)
+            return false;
+
+        return !string.IsNullOrWhiteSpace(personal.FirstName)
+            || !string.IsNullOrWhiteSpace(personal.LastName)
+            || !string.IsNullOrWhiteSpace(personal.PhoneNumber)
+            || !string.IsNullOrWhiteSpace(personal.Address)
+            || !string.IsNullOrWhiteSpace(personal.Nationality)
+            || !string.IsNullOrWhiteSpace(personal.Gender)
+            || !string.IsNullOrWhiteSpace(personal.CountryOfResidence)
+            || personal.DateOfBirth.HasValue;
     }
 }
 

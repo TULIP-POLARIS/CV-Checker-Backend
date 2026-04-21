@@ -176,6 +176,46 @@ public class CVControllerTests
         Assert.Equal("ai-fallback", profile.GetType().GetProperty("source")!.GetValue(profile)!.ToString());
     }
 
+    [Fact]
+    public async Task Generate_UsesUploadedCvAiData_WhenPersonalRowExistsButIsEmpty()
+    {
+        var userId = Guid.NewGuid();
+        var dbOptions = new DbContextOptionsBuilder<ApiContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var db = new ApiContext(dbOptions);
+
+        db.PersonalInfos.Add(new PersonalInfo
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            FirstName = "",
+            LastName = "",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        db.CVs.Add(new CV
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Content = "{\"FullName\":\"AI Name\",\"Phone\":\"999\",\"Skills\":\"Python, SQL\"}",
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var controller = BuildCvController(db, userId);
+        var action = await controller.Generate(new CVController.GenerateBody { JobTitle = "Backend", JobDescription = "Build APIs" });
+
+        var ok = Assert.IsType<OkObjectResult>(action);
+        var generatedCv = ok.Value!.GetType().GetProperty("generatedCv")!.GetValue(ok.Value)!;
+        var sections = generatedCv.GetType().GetProperty("sections")!.GetValue(generatedCv)!;
+        var profile = sections.GetType().GetProperty("profile")!.GetValue(sections)!;
+
+        Assert.Equal("AI Name", profile.GetType().GetProperty("fullName")!.GetValue(profile)!.ToString());
+        Assert.Equal("999", profile.GetType().GetProperty("phoneNumber")!.GetValue(profile)!.ToString());
+        Assert.Equal("ai-fallback", profile.GetType().GetProperty("source")!.GetValue(profile)!.ToString());
+    }
+
     private static CVController BuildCvController(ApiContext db, Guid userId)
     {
         var controller = new CVController(new FakeCvService(), new FakeJobOfferService(), db, new CVExtractionRunner());
