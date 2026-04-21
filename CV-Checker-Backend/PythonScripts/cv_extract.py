@@ -4,6 +4,15 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
+# Add local packaged dependencies path first
+extra_paths = [
+    r"C:\home\site\wwwroot\PythonPackages"
+]
+
+for p in extra_paths:
+    if p and os.path.isdir(p) and p not in sys.path:
+        sys.path.insert(0, p)
+
 from PyPDF2 import PdfReader
 from docx import Document
 
