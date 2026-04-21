@@ -1,6 +1,7 @@
-using BusinessLogic.Services;
+using BusinessLayer.Services;
 using BusinessLogic;
 using BusinessLogic.Interface;
+using BusinessLogic.Services;
 using CVApi;
 using DAL.Api;
 using DAL.Interface;
@@ -62,6 +63,7 @@ builder.Services.AddScoped<CVExtractionRunner>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Identity.IPasswordHasher<Domain.Entities.User>, Microsoft.AspNetCore.Identity.PasswordHasher<Domain.Entities.User>>();
 builder.Services.Configure<CVApi.Controllers.JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddScoped<JobOfferReadinessService>();
+builder.Services.AddScoped<CVGenerationService>();
 
 
 // Add CORS service

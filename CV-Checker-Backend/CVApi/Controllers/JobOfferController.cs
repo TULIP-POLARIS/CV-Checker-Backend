@@ -1,10 +1,11 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Authorization;
-using System.Security.Claims;
-using Domain.Entities;
-using BusinessLogic.Interface;
+using BusinessLayer.Services;
 using BusinessLogic.DTOs;
+using BusinessLogic.Interface;
 using BusinessLogic.Services;
+using Domain.Entities;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace CVApi.Controllers
 {
@@ -15,13 +16,16 @@ namespace CVApi.Controllers
     {
         private readonly IJobOfferService _jobOfferService;
         private readonly JobOfferReadinessService _jobOfferReadinessService;
+        private readonly CVGenerationService _cvGenerationService;
 
         public JobOfferController(
             IJobOfferService jobOfferService,
-            JobOfferReadinessService jobOfferReadinessService)
+            JobOfferReadinessService jobOfferReadinessService,
+            CVGenerationService cvGenerationService)
         {
             _jobOfferService = jobOfferService;
             _jobOfferReadinessService = jobOfferReadinessService;
+            _cvGenerationService = cvGenerationService;
         }
 
         // POST /api/joboffers
@@ -129,6 +133,35 @@ namespace CVApi.Controllers
                 return StatusCode(500, new
                 {
                     message = "An error occurred while checking the job offer.",
+                    error = ex.Message
+                });
+            }
+        }
+        // POST /api/joboffers/generate-cv
+        [HttpPost("generate-cv")]
+        public async Task<IActionResult> GenerateCv()
+        {
+            try
+            {
+                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+                    return Unauthorized(new { message = "Invalid token." });
+
+                var readiness = await _jobOfferReadinessService.CheckUserReadinessAsync(userId);
+
+                if (!readiness.CanProceed)
+                    return BadRequest(readiness);
+
+                var generatedCv = await _cvGenerationService.BuildGeneratedCvAsync(userId);
+
+                return Ok(generatedCv);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "An error occurred while generating CV data.",
                     error = ex.Message
                 });
             }
