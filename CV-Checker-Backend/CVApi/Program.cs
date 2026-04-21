@@ -68,7 +68,7 @@ builder.Services.AddScoped<ICVComparisonService, CVComparisonService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<CVExtractionRunner>();
 builder.Services.AddScoped<JobOfferReadinessService>();
-builder.Services.AddScoped<CVGenerationService>();
+builder.Services.AddScoped<CvGenerationService>();
 
 builder.Services.AddScoped<
     Microsoft.AspNetCore.Identity.IPasswordHasher<Domain.Entities.User>,

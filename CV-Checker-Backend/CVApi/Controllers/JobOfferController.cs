@@ -1,4 +1,3 @@
-using BusinessLayer.Services;
 using BusinessLogic.DTOs;
 using BusinessLogic.Interface;
 using BusinessLogic.Services;
@@ -16,12 +15,12 @@ namespace CVApi.Controllers
     {
         private readonly IJobOfferService _jobOfferService;
         private readonly JobOfferReadinessService _jobOfferReadinessService;
-        private readonly CVGenerationService _cvGenerationService;
+        private readonly CvGenerationService _cvGenerationService;
 
         public JobOfferController(
             IJobOfferService jobOfferService,
             JobOfferReadinessService jobOfferReadinessService,
-            CVGenerationService cvGenerationService)
+            CvGenerationService cvGenerationService)
         {
             _jobOfferService = jobOfferService;
             _jobOfferReadinessService = jobOfferReadinessService;
@@ -204,12 +203,25 @@ namespace CVApi.Controllers
                 if (string.IsNullOrWhiteSpace(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
                     return Unauthorized(new { message = "Invalid token." });
 
-                var readiness = await _jobOfferReadinessService.CheckUserReadinessAsync(userId);
-
-                if (!readiness.CanProceed)
-                    return BadRequest(readiness);
-
                 var generatedCv = await _cvGenerationService.BuildGeneratedCvAsync(userId);
+
+                var hasAnyData =
+                    !string.IsNullOrWhiteSpace(generatedCv.FullName) ||
+                    !string.IsNullOrWhiteSpace(generatedCv.PhoneNumber) ||
+                    !string.IsNullOrWhiteSpace(generatedCv.Nationality) ||
+                    !string.IsNullOrWhiteSpace(generatedCv.Address) ||
+                    generatedCv.Skills.Any() ||
+                    generatedCv.Languages.Any() ||
+                    generatedCv.Education.Any() ||
+                    generatedCv.WorkExperience.Any();
+
+                if (!hasAnyData)
+                {
+                    return BadRequest(new
+                    {
+                        message = "Please fill in your profile or upload a CV before generating a CV."
+                    });
+                }
 
                 return Ok(generatedCv);
             }
