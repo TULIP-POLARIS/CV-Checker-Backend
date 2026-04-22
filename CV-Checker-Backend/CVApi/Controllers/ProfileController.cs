@@ -132,11 +132,11 @@ public sealed class ProfileController : ControllerBase
         return Ok(new
         {
             message = "Profile picture uploaded successfully.",
-            personalInfoId = row.Id,
+            userId = row.UserId,
             fileName = row.ProfilePictureFileName,
             contentType = row.ProfilePictureContentType,
             size = row.ProfilePictureFileSizeBytes,
-            pictureUrl = $"/api/profile/personal/picture/{row.Id}"
+            pictureUrl = $"/api/profile/personal/picture/user/{row.UserId}"
         });
     }
 
@@ -164,12 +164,12 @@ public sealed class ProfileController : ControllerBase
         return File(row.ProfilePictureData, contentType, fileName);
     }
 
-    [HttpGet("personal/picture/{id:guid}")]
-    public async Task<IActionResult> GetProfilePictureById(Guid id)
+    [HttpGet("personal/picture/user/{userId:guid}")]
+    public async Task<IActionResult> GetProfilePictureByUserId(Guid userId)
     {
         var row = await _db.PersonalInfos
             .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == id);
+            .FirstOrDefaultAsync(p => p.UserId == userId);
 
         if (row == null || row.ProfilePictureData == null || row.ProfilePictureData.Length == 0)
             return NotFound(new { message = "Profile picture not found." });
@@ -544,7 +544,7 @@ public sealed class PersonalOut
         PhoneNumber = p.PhoneNumber,
         HasProfilePicture = p.ProfilePictureData != null && p.ProfilePictureData.Length > 0,
         ProfilePictureUrl = p.ProfilePictureData != null && p.ProfilePictureData.Length > 0
-            ? $"/api/profile/personal/picture/{p.Id}"
+            ? $"/api/profile/personal/picture/user/{p.UserId}"
             : null
     };
 }
