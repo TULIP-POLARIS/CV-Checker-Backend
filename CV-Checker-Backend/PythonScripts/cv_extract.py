@@ -199,36 +199,52 @@ def guess_job_title_from_top(lines: List[str], full_name: str) -> str:
 
 
 def guess_location(lines: List[str]) -> str:
-    blocked_words = {
-        "contact", "profile", "skills", "languages", "education",
-        "experience", "projects", "summary", "linkedin", "github"
+    blocked_exact = {
+        "contact", "education", "languages", "profile", "skills",
+        "technical skills", "work experience", "projects", "summary"
     }
 
-    for line in lines[:25]:
+    blocked_contains = {
+        "linkedin", "github", "@", "developer", "engineer", "student"
+    }
+
+    location_candidates = []
+
+    for line in lines[:30]:
         raw = line.strip()
         lower = raw.lower()
+        norm = normalize_heading(raw)
 
         if not raw:
             continue
 
-        if any(word in lower for word in blocked_words):
+        if norm in blocked_exact:
             continue
 
-        if "@" in raw:
-            continue
-
-        if re.search(r"https?://|www\.", lower):
+        if any(word in lower for word in blocked_contains):
             continue
 
         if re.search(r"\+\d", raw):
             continue
 
-        if len(raw) > 45:
+        if re.search(r"\d{4}", raw):
             continue
 
-        # Prefer "City, Country" format
+        if len(raw) > 40:
+            continue
+
+        # Strong preference: City, Country
         if "," in raw and re.fullmatch(r"[A-Za-zÀ-ÿ .'\-]+,\s*[A-Za-zÀ-ÿ .'\-]+", raw):
-            return raw
+            location_candidates.append(raw)
+
+    # Best match with country names we expect often in CVs
+    for candidate in location_candidates:
+        lower = candidate.lower()
+        if "finland" in lower or "netherlands" in lower or "portugal" in lower:
+            return candidate
+
+    if location_candidates:
+        return location_candidates[0]
 
     return ""
 
