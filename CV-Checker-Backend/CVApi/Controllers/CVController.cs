@@ -71,6 +71,12 @@ public sealed class CVController : ControllerBase
         {
             await System.IO.File.WriteAllBytesAsync(tempPath, fileBytes);
             aiResult = await _runner.ExtractFromFileAsync(tempPath);
+            Console.WriteLine("===== PYTHON RESULT =====");
+            Console.WriteLine(JsonSerializer.Serialize(aiResult, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            }));
+            Console.WriteLine("=========================");
         }
         finally
         {
