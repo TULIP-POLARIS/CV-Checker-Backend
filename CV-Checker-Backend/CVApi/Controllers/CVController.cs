@@ -71,6 +71,7 @@ public sealed class CVController : ControllerBase
         {
             await System.IO.File.WriteAllBytesAsync(tempPath, fileBytes);
             aiResult = await _runner.ExtractFromFileAsync(tempPath);
+
             Console.WriteLine("===== PYTHON RESULT =====");
             Console.WriteLine(JsonSerializer.Serialize(aiResult, new JsonSerializerOptions
             {
@@ -329,14 +330,14 @@ public sealed class CVController : ControllerBase
             ? new List<string>()
             : (extraction?.Skills ?? new List<string>());
 
-        var normalizedSkills = useProfileData
-            ? skills.Select(s => new
+        IEnumerable<object> normalizedSkills = useProfileData
+            ? skills.Select(s => (object)new
             {
                 name = s.Name,
                 level = s.Level,
                 source = "profile"
             })
-            : aiFallbackSkills.Select(s => new
+            : aiFallbackSkills.Select(s => (object)new
             {
                 name = s,
                 level = "Not specified",
@@ -351,13 +352,31 @@ public sealed class CVController : ControllerBase
             ? extraction!.FullName
             : string.Empty;
 
+        var aiFirstName = string.Empty;
+        var aiLastName = string.Empty;
+
+        if (!useProfileData && !string.IsNullOrWhiteSpace(aiFullName))
+        {
+            var parts = aiFullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length >= 2)
+            {
+                aiFirstName = parts[0];
+                aiLastName = string.Join(" ", parts.Skip(1));
+            }
+            else if (parts.Length == 1)
+            {
+                aiFirstName = parts[0];
+            }
+        }
+
         var profilePhone = personal?.PhoneNumber ?? string.Empty;
         var aiPhone = IsMeaningfulExtractionValue(extraction?.Phone)
             ? extraction!.Phone
             : string.Empty;
 
-        var fallbackLanguages = useProfileData
-            ? Array.Empty<object>()
+        IEnumerable<object> fallbackLanguages = useProfileData
+            ? Enumerable.Empty<object>()
             : (extraction?.Languages ?? new List<string>())
                 .Where(IsMeaningfulExtractionValue)
                 .Select(l => (object)new
@@ -365,11 +384,10 @@ public sealed class CVController : ControllerBase
                     name = l,
                     level = "Not specified",
                     source = "ai-fallback"
-                })
-                .ToArray();
+                });
 
-        var fallbackEducation = useProfileData
-            ? Array.Empty<object>()
+        IEnumerable<object> fallbackEducation = useProfileData
+            ? Enumerable.Empty<object>()
             : (extraction?.Education ?? new List<EducationItem>())
                 .Where(e =>
                     IsMeaningfulExtractionValue(e.Institution) ||
@@ -387,11 +405,10 @@ public sealed class CVController : ControllerBase
                         ? e.Raw
                         : (e.Description ?? string.Empty),
                     source = "ai-fallback"
-                })
-                .ToArray();
+                });
 
-        var fallbackWorkExperience = useProfileData
-            ? Array.Empty<object>()
+        IEnumerable<object> fallbackWorkExperience = useProfileData
+            ? Enumerable.Empty<object>()
             : (extraction?.WorkExperience ?? new List<WorkExperienceItem>())
                 .Where(w =>
                     IsMeaningfulExtractionValue(w.Role) ||
@@ -410,13 +427,12 @@ public sealed class CVController : ControllerBase
                         ? w.Raw
                         : (w.Description ?? string.Empty),
                     source = "ai-fallback"
-                })
-                .ToArray();
+                });
 
         var hasBackground = !string.IsNullOrWhiteSpace(bg?.BackgroundText);
-        var hasLanguages = useProfileData ? langs.Count > 0 : fallbackLanguages.Length > 0;
-        var hasEducation = useProfileData ? edu.Count > 0 : fallbackEducation.Length > 0;
-        var hasWorkExperience = useProfileData ? work.Count > 0 : fallbackWorkExperience.Length > 0;
+        var hasLanguages = useProfileData ? langs.Count > 0 : fallbackLanguages.Any();
+        var hasEducation = useProfileData ? edu.Count > 0 : fallbackEducation.Any();
+        var hasWorkExperience = useProfileData ? work.Count > 0 : fallbackWorkExperience.Any();
 
         return new
         {
@@ -447,8 +463,8 @@ public sealed class CVController : ControllerBase
                 profile = new
                 {
                     fullName = useProfileData ? profileFullName : aiFullName,
-                    firstName = useProfileData ? personal?.FirstName ?? string.Empty : string.Empty,
-                    lastName = useProfileData ? personal?.LastName ?? string.Empty : string.Empty,
+                    firstName = useProfileData ? personal?.FirstName ?? string.Empty : aiFirstName,
+                    lastName = useProfileData ? personal?.LastName ?? string.Empty : aiLastName,
                     dateOfBirth = personal?.DateOfBirth?.ToString("yyyy-MM-dd"),
                     phoneNumber = useProfileData ? profilePhone : aiPhone,
                     address = useProfileData ? personal?.Address ?? string.Empty : string.Empty,
@@ -471,13 +487,13 @@ public sealed class CVController : ControllerBase
                 },
                 skills = normalizedSkills,
                 languages = useProfileData
-                ? langs.Select(l => (object)new
-                {
-                    name = l.Name,
-                    level = l.Level,
-                    source = "profile"
-                })
-                : fallbackLanguages,
+                    ? langs.Select(l => (object)new
+                    {
+                        name = l.Name,
+                        level = l.Level,
+                        source = "profile"
+                    })
+                    : fallbackLanguages,
                 education = useProfileData
                     ? edu.Select(e => (object)new
                     {

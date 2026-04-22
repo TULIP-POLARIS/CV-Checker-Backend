@@ -385,6 +385,19 @@ def extract_summary_heuristic(text: str) -> str:
     return ""
 
 
+def clean_institution(text: str) -> str:
+    # remove linkedin lixo
+    text = re.sub(r"linkedin", "", text, flags=re.IGNORECASE)
+
+    # separa palavras coladas tipo: Linkedinouluuniversityof
+    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
+
+    # remove duplicações e lixo comum
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
+
 def extract_education_heuristic(text: str) -> List[Dict[str, str]]:
     results = []
 
@@ -395,12 +408,13 @@ def extract_education_heuristic(text: str) -> List[Dict[str, str]]:
     )
 
     if uni_match:
-        institution = re.sub(r"\s+", " ", uni_match.group(1)).strip().title()
+        institution = clean_institution(uni_match.group(1))
         date_range = re.sub(r"\s+", " ", uni_match.group(2)).strip()
         degree = re.sub(r"\s+", " ", uni_match.group(3)).strip().title()
 
         start_date = ""
         end_date = ""
+
         year_match = re.match(r"(\d{4})\s*-\s*(\d{4})", date_range)
         if year_match:
             start_date = year_match.group(1)
