@@ -199,22 +199,36 @@ def guess_job_title_from_top(lines: List[str], full_name: str) -> str:
 
 
 def guess_location(lines: List[str]) -> str:
-    for line in lines[:20]:
-        lowered = line.lower()
+    blocked_words = {
+        "contact", "profile", "skills", "languages", "education",
+        "experience", "projects", "summary", "linkedin", "github"
+    }
 
-        if "linkedin.com" in lowered or "github.com" in lowered or "@" in lowered:
+    for line in lines[:25]:
+        raw = line.strip()
+        lower = raw.lower()
+
+        if not raw:
             continue
 
-        if re.search(r"\+\d", line):
+        if any(word in lower for word in blocked_words):
             continue
 
-        if len(line) > 50:
+        if "@" in raw:
             continue
 
-        if re.fullmatch(r"[A-Za-zÀ-ÿ0-9,.\- ]+", line):
-            if "," in line or 1 <= len(line.split()) <= 4:
-                if "contact" not in lowered and "profile" not in lowered:
-                    return line
+        if re.search(r"https?://|www\.", lower):
+            continue
+
+        if re.search(r"\+\d", raw):
+            continue
+
+        if len(raw) > 45:
+            continue
+
+        # Prefer "City, Country" format
+        if "," in raw and re.fullmatch(r"[A-Za-zÀ-ÿ .'\-]+,\s*[A-Za-zÀ-ÿ .'\-]+", raw):
+            return raw
 
     return ""
 

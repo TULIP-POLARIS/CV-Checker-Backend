@@ -109,7 +109,6 @@ public sealed class CVController : ControllerBase
 
             var savedCv = await _cvService.CreateCVAsync(cv);
 
-            // Fill profile automatically from extracted CV data
             if (extractionToPersist != null && string.IsNullOrWhiteSpace(extractionToPersist.Error))
             {
                 await FillProfileFromExtractionAsync(userId.Value, extractionToPersist);
@@ -363,16 +362,28 @@ public sealed class CVController : ControllerBase
 
         if (!useProfileData && !string.IsNullOrWhiteSpace(aiFullName))
         {
-            var parts = aiFullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var blockedNameWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "skills", "languages", "education", "profile", "contact",
+                "experience", "projects", "summary", "technical"
+            };
 
-            if (parts.Length >= 2)
+            var parts = aiFullName
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            var looksLikeBadName = parts.Any(p => blockedNameWords.Contains(p));
+
+            if (!looksLikeBadName)
             {
-                aiFirstName = parts[0];
-                aiLastName = string.Join(" ", parts.Skip(1));
-            }
-            else if (parts.Length == 1)
-            {
-                aiFirstName = parts[0];
+                if (parts.Length >= 2)
+                {
+                    aiFirstName = parts[0];
+                    aiLastName = string.Join(" ", parts.Skip(1));
+                }
+                else if (parts.Length == 1)
+                {
+                    aiFirstName = parts[0];
+                }
             }
         }
 
@@ -561,7 +572,6 @@ public sealed class CVController : ControllerBase
 
         var now = DateTime.UtcNow;
 
-        // Personal info
         var personal = await _db.PersonalInfos.FirstOrDefaultAsync(p => p.UserId == userId);
 
         if (personal == null)
@@ -578,13 +588,12 @@ public sealed class CVController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(extraction.FullName))
         {
-            var parts = extraction.FullName
-                .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var parts = extraction.FullName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-            if (string.IsNullOrWhiteSpace(personal.FirstName) && parts.Length >= 1)
+            if (string.IsNullOrWhiteSpace(personal.FirstName) && parts.Length > 0)
                 personal.FirstName = parts[0];
 
-            if (string.IsNullOrWhiteSpace(personal.LastName) && parts.Length >= 2)
+            if (string.IsNullOrWhiteSpace(personal.LastName) && parts.Length > 1)
                 personal.LastName = string.Join(" ", parts.Skip(1));
         }
 
@@ -596,7 +605,6 @@ public sealed class CVController : ControllerBase
 
         personal.UpdatedAt = now;
 
-        // Skills
         var existingSkills = await _db.Skills
             .Where(s => s.UserId == userId)
             .Select(s => s.Name)
@@ -628,7 +636,6 @@ public sealed class CVController : ControllerBase
             existingSkillSet.Add(normalized);
         }
 
-        // Languages
         var existingLanguages = await _db.Languages
             .Where(l => l.UserId == userId)
             .Select(l => l.Name)
@@ -669,7 +676,6 @@ public sealed class CVController : ControllerBase
             existingLanguageSet.Add(name);
         }
 
-        // Education
         var existingEducations = await _db.Educations
             .Where(e => e.UserId == userId)
             .ToListAsync();
@@ -715,7 +721,6 @@ public sealed class CVController : ControllerBase
             existingEducations.Add(newEdu);
         }
 
-        // Work experience
         var existingWork = await _db.WorkExperiences
             .Where(w => w.UserId == userId)
             .ToListAsync();
