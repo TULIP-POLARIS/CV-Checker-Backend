@@ -82,7 +82,6 @@ public sealed class CVController : ControllerBase
 
         try
         {
-            // 1. Save CV
             var extractionToPersist = aiResult;
             if (!string.IsNullOrWhiteSpace(aiResult?.Error))
                 extractionToPersist = BuildFallbackExtractionFromText(extractedText, aiResult.Error);
@@ -103,7 +102,6 @@ public sealed class CVController : ControllerBase
 
             var savedCv = await _cvService.CreateCVAsync(cv);
 
-            // 2. Save background
             CvBackground? savedBackground = null;
             if (!string.IsNullOrWhiteSpace(request.BackgroundText))
             {
@@ -118,7 +116,6 @@ public sealed class CVController : ControllerBase
                 _db.CvBackgrounds.Add(savedBackground);
             }
 
-            // 3. Save job offer
             JobOffer? savedJobOffer = null;
             if (!string.IsNullOrWhiteSpace(request.JobTitle) ||
                 !string.IsNullOrWhiteSpace(request.JobDescription) ||
@@ -148,7 +145,6 @@ public sealed class CVController : ControllerBase
 
             await transaction.CommitAsync();
 
-            // 4. Build generated CV payload using the job info saved above
             object? generatedCv = null;
             if (savedJobOffer != null)
             {
@@ -317,6 +313,7 @@ public sealed class CVController : ControllerBase
         var edu = await _db.Educations.AsNoTracking().Where(e => e.UserId == userId).ToListAsync();
         var work = await _db.WorkExperiences.AsNoTracking().Where(w => w.UserId == userId).ToListAsync();
         var skills = await _db.Skills.AsNoTracking().Where(s => s.UserId == userId).ToListAsync();
+        var langs = await _db.Languages.AsNoTracking().Where(l => l.UserId == userId).ToListAsync();
         var extraction = await GetLatestExtractionResultAsync(userId);
 
         var hasProfileInfo = HasMeaningfulProfileInfo(personal, edu.Count, work.Count, skills.Count);
@@ -324,57 +321,94 @@ public sealed class CVController : ControllerBase
 
         var aiFallbackSkills = useProfileData
             ? new List<string>()
-            : SplitExtractionValues(extraction?.Skills);
+            : (extraction?.Skills ?? new List<string>());
 
         var normalizedSkills = useProfileData
-            ? skills.Select(s => new { name = s.Name, level = s.Level, source = "profile" })
-            : aiFallbackSkills.Select(s => new { name = s, level = "Not specified", source = "ai-fallback" });
-
-        var langs = await _db.Languages.AsNoTracking().Where(l => l.UserId == userId).ToListAsync();
+            ? skills.Select(s => new
+            {
+                name = s.Name,
+                level = s.Level,
+                source = "profile"
+            })
+            : aiFallbackSkills.Select(s => new
+            {
+                name = s,
+                level = "Not specified",
+                source = "ai-fallback"
+            });
 
         var profileFullName = personal == null
             ? string.Empty
             : $"{personal.FirstName} {personal.LastName}".Trim();
-        var aiFullName = IsMeaningfulExtractionValue(extraction?.FullName) ? extraction!.FullName : string.Empty;
+
+        var aiFullName = IsMeaningfulExtractionValue(extraction?.FullName)
+            ? extraction!.FullName
+            : string.Empty;
 
         var profilePhone = personal?.PhoneNumber ?? string.Empty;
-        var aiPhone = IsMeaningfulExtractionValue(extraction?.Phone) ? extraction!.Phone : string.Empty;
+        var aiPhone = IsMeaningfulExtractionValue(extraction?.Phone)
+            ? extraction!.Phone
+            : string.Empty;
 
-        var fallbackEducation = useProfileData || !IsMeaningfulExtractionValue(extraction?.Education)
+        var fallbackLanguages = useProfileData
             ? Array.Empty<object>()
-            : new[]
-            {
-                new
+            : (extraction?.Languages ?? new List<string>())
+                .Where(IsMeaningfulExtractionValue)
+                .Select(l => (object)new
                 {
-                    degree = string.Empty,
+                    name = l,
+                    level = "Not specified",
+                    source = "ai-fallback"
+                })
+                .ToArray();
+
+        var fallbackEducation = useProfileData
+            ? Array.Empty<object>()
+            : (extraction?.Education ?? new List<EducationItem>())
+                .Where(e =>
+                    IsMeaningfulExtractionValue(e.Institution) ||
+                    IsMeaningfulExtractionValue(e.Degree) ||
+                    IsMeaningfulExtractionValue(e.Description) ||
+                    IsMeaningfulExtractionValue(e.Raw))
+                .Select(e => (object)new
+                {
+                    degree = e.Degree ?? string.Empty,
                     fieldOfStudy = string.Empty,
-                    institution = string.Empty,
-                    startDate = string.Empty,
-                    endDate = string.Empty,
-                    description = extraction!.Education,
+                    institution = e.Institution ?? string.Empty,
+                    startDate = e.StartDate ?? string.Empty,
+                    endDate = e.EndDate ?? string.Empty,
+                    description = !string.IsNullOrWhiteSpace(e.Raw)
+                        ? e.Raw
+                        : (e.Description ?? string.Empty),
                     source = "ai-fallback"
-                }
-            };
+                })
+                .ToArray();
 
-        var fallbackWorkExperience = useProfileData || !IsMeaningfulExtractionValue(extraction?.WorkExperience)
+        var fallbackWorkExperience = useProfileData
             ? Array.Empty<object>()
-            : new[]
-            {
-                new
+            : (extraction?.WorkExperience ?? new List<WorkExperienceItem>())
+                .Where(w =>
+                    IsMeaningfulExtractionValue(w.Role) ||
+                    IsMeaningfulExtractionValue(w.Company) ||
+                    IsMeaningfulExtractionValue(w.Description) ||
+                    IsMeaningfulExtractionValue(w.Raw))
+                .Select(w => (object)new
                 {
-                    jobTitle = string.Empty,
-                    company = string.Empty,
+                    jobTitle = w.Role ?? string.Empty,
+                    company = w.Company ?? string.Empty,
                     location = string.Empty,
-                    startDate = string.Empty,
-                    endDate = string.Empty,
-                    currentlyWorking = false,
-                    description = extraction!.WorkExperience,
+                    startDate = w.StartDate ?? string.Empty,
+                    endDate = w.EndDate ?? string.Empty,
+                    currentlyWorking = string.Equals(w.EndDate, "Present", StringComparison.OrdinalIgnoreCase),
+                    description = !string.IsNullOrWhiteSpace(w.Raw)
+                        ? w.Raw
+                        : (w.Description ?? string.Empty),
                     source = "ai-fallback"
-                }
-            };
+                })
+                .ToArray();
 
         var hasBackground = !string.IsNullOrWhiteSpace(bg?.BackgroundText);
-        var hasLanguages = langs.Count > 0;
+        var hasLanguages = useProfileData ? langs.Count > 0 : fallbackLanguages.Length > 0;
         var hasEducation = useProfileData ? edu.Count > 0 : fallbackEducation.Length > 0;
         var hasWorkExperience = useProfileData ? work.Count > 0 : fallbackWorkExperience.Length > 0;
 
@@ -391,13 +425,15 @@ public sealed class CVController : ControllerBase
                     personalDetails = useProfileData ? "profile" : "ai-fallback-from-uploaded-cv",
                     summary = hasBackground ? "profile-background" : "none",
                     skills = useProfileData ? "profile" : "ai-fallback-from-uploaded-cv",
-                    languages = hasLanguages ? "profile" : "none",
-                    education = useProfileData
-                        ? (hasEducation ? "profile" : "none")
-                        : (hasEducation ? "ai-fallback-from-uploaded-cv" : "none"),
-                    workExperience = useProfileData
-                        ? (hasWorkExperience ? "profile" : "none")
-                        : (hasWorkExperience ? "ai-fallback-from-uploaded-cv" : "none")
+                    languages = hasLanguages
+                        ? (useProfileData ? "profile" : "ai-fallback-from-uploaded-cv")
+                        : "none",
+                    education = hasEducation
+                        ? (useProfileData ? "profile" : "ai-fallback-from-uploaded-cv")
+                        : "none",
+                    workExperience = hasWorkExperience
+                        ? (useProfileData ? "profile" : "ai-fallback-from-uploaded-cv")
+                        : "none"
                 }
             },
             sections = new
@@ -414,22 +450,28 @@ public sealed class CVController : ControllerBase
                     gender = useProfileData ? personal?.Gender ?? string.Empty : string.Empty,
                     countryOfResidence = useProfileData ? personal?.CountryOfResidence ?? string.Empty : string.Empty,
                     profilePictureUrl = useProfileData && personal?.ProfilePictureData != null && personal.ProfilePictureData.Length > 0
-                    ? "/api/profile/personal/picture"
-                    : null,
+                        ? "/api/profile/personal/picture"
+                        : null,
                     source = useProfileData ? "profile" : "ai-fallback"
                 },
                 summary = new
                 {
-                    text = bg?.BackgroundText ?? string.Empty,
-                    source = hasBackground ? "profile-background" : "none"
+                    text = hasBackground
+                        ? bg!.BackgroundText
+                        : (extraction?.ProfessionalSummary ?? string.Empty),
+                    source = hasBackground
+                        ? "profile-background"
+                        : IsMeaningfulExtractionValue(extraction?.ProfessionalSummary) ? "ai-fallback" : "none"
                 },
                 skills = normalizedSkills,
-                languages = langs.Select(l => new
+                languages = useProfileData
+                ? langs.Select(l => (object)new
                 {
                     name = l.Name,
                     level = l.Level,
                     source = "profile"
-                }),
+                })
+                : fallbackLanguages,
                 education = useProfileData
                     ? edu.Select(e => (object)new
                     {
@@ -471,34 +513,17 @@ public sealed class CVController : ControllerBase
 
         try
         {
-            return JsonSerializer.Deserialize<CVExtractionResult>(latestCv.Content);
+            return JsonSerializer.Deserialize<CVExtractionResult>(
+                latestCv.Content,
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
         }
         catch (JsonException)
         {
             return null;
         }
-    }
-
-    private static List<string> SplitExtractionValues(string? raw)
-    {
-        if (!IsMeaningfulExtractionValue(raw))
-            return new List<string>();
-
-        return raw!
-            .Split(new[] { ',', ';', '\n', '\r', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(s => Regex.Replace(s, @"\s+", " ").Trim())
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(20)
-            .ToList();
-    }
-
-    private static bool IsMeaningfulExtractionValue(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return false;
-
-        return !string.Equals(value.Trim(), "Not found", StringComparison.OrdinalIgnoreCase);
     }
 
     [HttpGet("{id:guid}")]
@@ -574,16 +599,17 @@ public sealed class CVController : ControllerBase
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .ToList();
 
-        var firstLine = lines.FirstOrDefault() ?? "Not found";
+        var firstLine = lines.FirstOrDefault() ?? string.Empty;
         var fullName = Regex.IsMatch(firstLine, @"^[A-Za-z][A-Za-z\s\-'`]{2,60}$")
             ? firstLine
-            : "Not found";
+            : string.Empty;
 
         var emailMatch = Regex.Match(extractedText, @"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b");
         var phoneMatch = Regex.Match(extractedText, @"(\+\d{1,3}[\s\-]?\(?\d+\)?(?:[\s\-]?\d+){5,}|\(?\d{2,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4})");
 
         var skillHints = new List<string>();
         var lowerText = extractedText.ToLowerInvariant();
+
         if (lowerText.Contains("c#")) skillHints.Add("C#");
         if (lowerText.Contains(".net")) skillHints.Add(".NET");
         if (lowerText.Contains("sql")) skillHints.Add("SQL");
@@ -591,16 +617,44 @@ public sealed class CVController : ControllerBase
         if (lowerText.Contains("javascript")) skillHints.Add("JavaScript");
         if (lowerText.Contains("react")) skillHints.Add("React");
         if (lowerText.Contains("azure")) skillHints.Add("Azure");
+        if (lowerText.Contains("typescript")) skillHints.Add("TypeScript");
+        if (lowerText.Contains("node.js") || lowerText.Contains("nodejs")) skillHints.Add("Node.js");
+        if (lowerText.Contains("postgresql")) skillHints.Add("PostgreSQL");
+        if (lowerText.Contains("docker")) skillHints.Add("Docker");
+
+        var fallbackEducation = lowerText.Contains("education")
+            ? new List<EducationItem>
+            {
+                new EducationItem
+                {
+                    Raw = extractedText,
+                    Description = extractedText
+                }
+            }
+            : new List<EducationItem>();
+
+        var fallbackWorkExperience = lowerText.Contains("experience")
+            ? new List<WorkExperienceItem>
+            {
+                new WorkExperienceItem
+                {
+                    Raw = extractedText,
+                    Description = extractedText
+                }
+            }
+            : new List<WorkExperienceItem>();
 
         return new CVExtractionResult
         {
             FullName = fullName,
-            Email = emailMatch.Success ? emailMatch.Value : "Not found",
-            Phone = phoneMatch.Success ? phoneMatch.Value.Trim() : "Not found",
-            Skills = skillHints.Count > 0 ? string.Join(", ", skillHints.Distinct(StringComparer.OrdinalIgnoreCase)) : "Not found",
-            WorkExperience = lowerText.Contains("experience", StringComparison.Ordinal) ? extractedText : "Not found",
-            Education = lowerText.Contains("education", StringComparison.Ordinal) ? extractedText : "Not found",
-            Error = originalError
+            Email = emailMatch.Success ? emailMatch.Value : string.Empty,
+            Phone = phoneMatch.Success ? phoneMatch.Value.Trim() : string.Empty,
+            Skills = skillHints.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            Education = fallbackEducation,
+            WorkExperience = fallbackWorkExperience,
+            ProfessionalSummary = string.Empty,
+            Error = originalError,
+            RawExtractedText = extractedText
         };
     }
 
@@ -620,6 +674,14 @@ public sealed class CVController : ControllerBase
             || !string.IsNullOrWhiteSpace(personal.Gender)
             || !string.IsNullOrWhiteSpace(personal.CountryOfResidence)
             || personal.DateOfBirth.HasValue;
+    }
+
+    private static bool IsMeaningfulExtractionValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        return !string.Equals(value.Trim(), "Not found", StringComparison.OrdinalIgnoreCase);
     }
 }
 
