@@ -132,9 +132,11 @@ public sealed class ProfileController : ControllerBase
         return Ok(new
         {
             message = "Profile picture uploaded successfully.",
+            personalInfoId = row.Id,
             fileName = row.ProfilePictureFileName,
             contentType = row.ProfilePictureContentType,
-            size = row.ProfilePictureFileSizeBytes
+            size = row.ProfilePictureFileSizeBytes,
+            pictureUrl = $"/api/profile/personal/picture/{row.Id}"
         });
     }
 
@@ -147,6 +149,27 @@ public sealed class ProfileController : ControllerBase
         var row = await _db.PersonalInfos
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.UserId == userId);
+
+        if (row == null || row.ProfilePictureData == null || row.ProfilePictureData.Length == 0)
+            return NotFound(new { message = "Profile picture not found." });
+
+        var contentType = string.IsNullOrWhiteSpace(row.ProfilePictureContentType)
+            ? "image/jpeg"
+            : row.ProfilePictureContentType;
+
+        var fileName = string.IsNullOrWhiteSpace(row.ProfilePictureFileName)
+            ? "profile-picture"
+            : row.ProfilePictureFileName;
+
+        return File(row.ProfilePictureData, contentType, fileName);
+    }
+
+    [HttpGet("personal/picture/{id:guid}")]
+    public async Task<IActionResult> GetProfilePictureById(Guid id)
+    {
+        var row = await _db.PersonalInfos
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == id);
 
         if (row == null || row.ProfilePictureData == null || row.ProfilePictureData.Length == 0)
             return NotFound(new { message = "Profile picture not found." });
@@ -521,7 +544,7 @@ public sealed class PersonalOut
         PhoneNumber = p.PhoneNumber,
         HasProfilePicture = p.ProfilePictureData != null && p.ProfilePictureData.Length > 0,
         ProfilePictureUrl = p.ProfilePictureData != null && p.ProfilePictureData.Length > 0
-            ? "/api/profile/personal/picture"
+            ? $"/api/profile/personal/picture/{p.Id}"
             : null
     };
 }
