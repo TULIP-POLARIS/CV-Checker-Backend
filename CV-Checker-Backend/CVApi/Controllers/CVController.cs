@@ -109,6 +109,12 @@ public sealed class CVController : ControllerBase
 
             var savedCv = await _cvService.CreateCVAsync(cv);
 
+            // Fill profile automatically from extracted CV data
+            if (extractionToPersist != null && string.IsNullOrWhiteSpace(extractionToPersist.Error))
+            {
+                await FillProfileFromExtractionAsync(userId.Value, extractionToPersist);
+            }
+
             CvBackground? savedBackground = null;
             if (!string.IsNullOrWhiteSpace(request.BackgroundText))
             {
@@ -472,7 +478,7 @@ public sealed class CVController : ControllerBase
                     gender = useProfileData ? personal?.Gender ?? string.Empty : string.Empty,
                     countryOfResidence = useProfileData ? personal?.CountryOfResidence ?? string.Empty : string.Empty,
                     profilePictureUrl = useProfileData && personal?.ProfilePictureData != null && personal.ProfilePictureData.Length > 0
-                        ? "/api/profile/personal/picture"
+                        ? $"/api/profile/personal/picture/user/{personal.UserId}"
                         : null,
                     source = useProfileData ? "profile" : "ai-fallback"
                 },
@@ -546,6 +552,217 @@ public sealed class CVController : ControllerBase
         {
             return null;
         }
+    }
+
+    private async Task FillProfileFromExtractionAsync(Guid userId, CVExtractionResult extraction)
+    {
+        if (extraction == null)
+            return;
+
+        var now = DateTime.UtcNow;
+
+        // Personal info
+        var personal = await _db.PersonalInfos.FirstOrDefaultAsync(p => p.UserId == userId);
+
+        if (personal == null)
+        {
+            personal = new PersonalInfo
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            _db.PersonalInfos.Add(personal);
+        }
+
+        if (!string.IsNullOrWhiteSpace(extraction.FullName))
+        {
+            var parts = extraction.FullName
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (string.IsNullOrWhiteSpace(personal.FirstName) && parts.Length >= 1)
+                personal.FirstName = parts[0];
+
+            if (string.IsNullOrWhiteSpace(personal.LastName) && parts.Length >= 2)
+                personal.LastName = string.Join(" ", parts.Skip(1));
+        }
+
+        if (string.IsNullOrWhiteSpace(personal.PhoneNumber) && !string.IsNullOrWhiteSpace(extraction.Phone))
+            personal.PhoneNumber = extraction.Phone;
+
+        if (string.IsNullOrWhiteSpace(personal.Address) && !string.IsNullOrWhiteSpace(extraction.Location))
+            personal.Address = extraction.Location;
+
+        personal.UpdatedAt = now;
+
+        // Skills
+        var existingSkills = await _db.Skills
+            .Where(s => s.UserId == userId)
+            .Select(s => s.Name)
+            .ToListAsync();
+
+        var existingSkillSet = new HashSet<string>(
+            existingSkills.Where(x => !string.IsNullOrWhiteSpace(x)),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var skillName in extraction.Skills ?? new List<string>())
+        {
+            if (string.IsNullOrWhiteSpace(skillName))
+                continue;
+
+            var normalized = skillName.Trim();
+            if (existingSkillSet.Contains(normalized))
+                continue;
+
+            _db.Skills.Add(new Skill
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Name = normalized,
+                Level = "Not specified",
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+
+            existingSkillSet.Add(normalized);
+        }
+
+        // Languages
+        var existingLanguages = await _db.Languages
+            .Where(l => l.UserId == userId)
+            .Select(l => l.Name)
+            .ToListAsync();
+
+        var existingLanguageSet = new HashSet<string>(
+            existingLanguages.Where(x => !string.IsNullOrWhiteSpace(x)),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var languageRaw in extraction.Languages ?? new List<string>())
+        {
+            if (string.IsNullOrWhiteSpace(languageRaw))
+                continue;
+
+            var name = languageRaw.Trim();
+            var level = "Not specified";
+
+            var match = Regex.Match(languageRaw, @"^(.*?)\s*\((.*?)\)\s*$");
+            if (match.Success)
+            {
+                name = match.Groups[1].Value.Trim();
+                level = match.Groups[2].Value.Trim();
+            }
+
+            if (existingLanguageSet.Contains(name))
+                continue;
+
+            _db.Languages.Add(new Language
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Name = name,
+                Level = level,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+
+            existingLanguageSet.Add(name);
+        }
+
+        // Education
+        var existingEducations = await _db.Educations
+            .Where(e => e.UserId == userId)
+            .ToListAsync();
+
+        foreach (var edu in extraction.Education ?? new List<EducationItem>())
+        {
+            if (edu == null)
+                continue;
+
+            var institution = edu.Institution?.Trim() ?? "";
+            var degree = edu.Degree?.Trim() ?? "";
+
+            if (string.IsNullOrWhiteSpace(institution) &&
+                string.IsNullOrWhiteSpace(degree) &&
+                string.IsNullOrWhiteSpace(edu.Description) &&
+                string.IsNullOrWhiteSpace(edu.Raw))
+                continue;
+
+            var alreadyExists = existingEducations.Any(e =>
+                string.Equals(e.Institution ?? "", institution, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(e.Degree ?? "", degree, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(e.StartDate ?? "", edu.StartDate ?? "", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(e.EndDate ?? "", edu.EndDate ?? "", StringComparison.OrdinalIgnoreCase));
+
+            if (alreadyExists)
+                continue;
+
+            var newEdu = new Education
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Institution = institution,
+                Degree = degree,
+                FieldOfStudy = "",
+                StartDate = edu.StartDate ?? "",
+                EndDate = edu.EndDate,
+                Description = !string.IsNullOrWhiteSpace(edu.Description) ? edu.Description : edu.Raw,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            _db.Educations.Add(newEdu);
+            existingEducations.Add(newEdu);
+        }
+
+        // Work experience
+        var existingWork = await _db.WorkExperiences
+            .Where(w => w.UserId == userId)
+            .ToListAsync();
+
+        foreach (var work in extraction.WorkExperience ?? new List<WorkExperienceItem>())
+        {
+            if (work == null)
+                continue;
+
+            var role = work.Role?.Trim() ?? "";
+            var company = work.Company?.Trim() ?? "";
+
+            if (string.IsNullOrWhiteSpace(role) &&
+                string.IsNullOrWhiteSpace(company) &&
+                string.IsNullOrWhiteSpace(work.Description) &&
+                string.IsNullOrWhiteSpace(work.Raw))
+                continue;
+
+            var alreadyExists = existingWork.Any(w =>
+                string.Equals(w.JobTitle ?? "", role, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(w.Company ?? "", company, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(w.StartDate ?? "", work.StartDate ?? "", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(w.EndDate ?? "", work.EndDate ?? "", StringComparison.OrdinalIgnoreCase));
+
+            if (alreadyExists)
+                continue;
+
+            var newWork = new WorkExperience
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                JobTitle = role,
+                Company = company,
+                Location = extraction.Location,
+                StartDate = work.StartDate ?? "",
+                EndDate = work.EndDate,
+                CurrentlyWorking = string.Equals(work.EndDate, "Present", StringComparison.OrdinalIgnoreCase),
+                Description = !string.IsNullOrWhiteSpace(work.Description) ? work.Description : work.Raw,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            _db.WorkExperiences.Add(newWork);
+            existingWork.Add(newWork);
+        }
+
+        await _db.SaveChangesAsync();
     }
 
     [HttpGet("{id:guid}")]
