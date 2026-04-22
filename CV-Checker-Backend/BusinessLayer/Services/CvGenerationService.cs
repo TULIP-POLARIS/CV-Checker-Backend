@@ -1,12 +1,9 @@
 ﻿using BusinessLogic.DTOs;
 using BusinessLogic.Interface;
-using BusinessLogic.Services;
-using DAL;
 using DAL.Api;
 using Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
-
 
 namespace BusinessLogic.Services
 {
@@ -18,7 +15,6 @@ namespace BusinessLogic.Services
         public CvGenerationService(
             ApiContext context,
             ICVService cvService)
-         
         {
             _context = context;
             _cvService = cvService;
@@ -104,7 +100,7 @@ namespace BusinessLogic.Services
             if (!string.IsNullOrWhiteSpace(profileFullName))
                 return profileFullName;
 
-            if (extraction != null && !IsNotFound(extraction.FullName))
+            if (extraction != null && HasText(extraction.FullName))
                 return extraction.FullName;
 
             return string.Empty;
@@ -115,7 +111,7 @@ namespace BusinessLogic.Services
             if (!string.IsNullOrWhiteSpace(personalInfo?.PhoneNumber))
                 return personalInfo.PhoneNumber;
 
-            if (extraction != null && !IsNotFound(extraction.Phone))
+            if (extraction != null && HasText(extraction.Phone))
                 return extraction.Phone;
 
             return null;
@@ -126,7 +122,7 @@ namespace BusinessLogic.Services
             if (!string.IsNullOrWhiteSpace(personalInfo?.Nationality))
                 return personalInfo.Nationality;
 
-            if (extraction != null && !IsNotFound(extraction.WorkAuthorization))
+            if (extraction != null && HasText(extraction.WorkAuthorization))
                 return extraction.WorkAuthorization;
 
             return null;
@@ -137,7 +133,7 @@ namespace BusinessLogic.Services
             if (!string.IsNullOrWhiteSpace(personalInfo?.Address))
                 return personalInfo.Address;
 
-            if (extraction != null && !IsNotFound(extraction.Location))
+            if (extraction != null && HasText(extraction.Location))
                 return extraction.Location;
 
             return null;
@@ -154,10 +150,14 @@ namespace BusinessLogic.Services
             if (result.Count > 0)
                 return result;
 
-            if (extraction == null || IsNotFound(extraction.Skills))
+            if (extraction?.Skills == null || extraction.Skills.Count == 0)
                 return result;
 
-            return SplitValues(extraction.Skills);
+            return extraction.Skills
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         private static List<string> BuildLanguages(List<Language> languages, CVExtractionResult? extraction)
@@ -173,10 +173,14 @@ namespace BusinessLogic.Services
             if (result.Count > 0)
                 return result;
 
-            if (extraction == null || IsNotFound(extraction.Languages))
+            if (extraction?.Languages == null || extraction.Languages.Count == 0)
                 return result;
 
-            return SplitValues(extraction.Languages);
+            return extraction.Languages
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
 
         private static List<GeneratedEducationDTO> BuildEducation(List<Education> educations, CVExtractionResult? extraction)
@@ -194,18 +198,25 @@ namespace BusinessLogic.Services
             if (result.Count > 0)
                 return result;
 
-            if (extraction == null || IsNotFound(extraction.Education))
+            if (extraction?.Education == null || extraction.Education.Count == 0)
                 return result;
 
-            result.Add(new GeneratedEducationDTO
-            {
-                Degree = "Extracted from CV",
-                FieldOfStudy = "",
-                Institution = "",
-                StartDate = "",
-                EndDate = null,
-                Description = extraction.Education
-            });
+            result.AddRange(
+                extraction.Education
+                    .Where(e =>
+                        HasText(e.Institution) ||
+                        HasText(e.Degree) ||
+                        HasText(e.Description) ||
+                        HasText(e.Raw))
+                    .Select(e => new GeneratedEducationDTO
+                    {
+                        Degree = HasText(e.Degree) ? e.Degree : "Extracted from CV",
+                        FieldOfStudy = "",
+                        Institution = HasText(e.Institution) ? e.Institution : "",
+                        StartDate = HasText(e.StartDate) ? e.StartDate : "",
+                        EndDate = HasText(e.EndDate) ? e.EndDate : null,
+                        Description = HasText(e.Description) ? e.Description : e.Raw
+                    }));
 
             return result;
         }
@@ -226,37 +237,36 @@ namespace BusinessLogic.Services
             if (result.Count > 0)
                 return result;
 
-            if (extraction == null || IsNotFound(extraction.WorkExperience))
+            if (extraction?.WorkExperience == null || extraction.WorkExperience.Count == 0)
                 return result;
 
-            result.Add(new GeneratedWorkExperienceDTO
-            {
-                JobTitle = !IsNotFound(extraction.JobTitle) ? extraction.JobTitle : "Extracted from CV",
-                Company = "",
-                Location = !IsNotFound(extraction.Location) ? extraction.Location : null,
-                StartDate = "",
-                EndDate = null,
-                CurrentlyWorking = false,
-                Description = extraction.WorkExperience
-            });
+            result.AddRange(
+                extraction.WorkExperience
+                    .Where(w =>
+                        HasText(w.Role) ||
+                        HasText(w.Company) ||
+                        HasText(w.Description) ||
+                        HasText(w.Raw))
+                    .Select(w => new GeneratedWorkExperienceDTO
+                    {
+                        JobTitle = HasText(w.Role)
+                            ? w.Role
+                            : (HasText(extraction.JobTitle) ? extraction.JobTitle : "Extracted from CV"),
+                        Company = HasText(w.Company) ? w.Company : "",
+                        Location = HasText(extraction.Location) ? extraction.Location : null,
+                        StartDate = HasText(w.StartDate) ? w.StartDate : "",
+                        EndDate = HasText(w.EndDate) ? w.EndDate : null,
+                        CurrentlyWorking = string.Equals(w.EndDate, "Present", StringComparison.OrdinalIgnoreCase),
+                        Description = HasText(w.Description) ? w.Description : w.Raw
+                    }));
 
             return result;
         }
 
-        private static List<string> SplitValues(string raw)
+        private static bool HasText(string? value)
         {
-            return raw
-                .Split(new[] { ',', ';', '|', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(x => x.Trim())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-
-        private static bool IsNotFound(string? value)
-        {
-            return string.IsNullOrWhiteSpace(value) ||
-                   value.Trim().Equals("Not found", StringComparison.OrdinalIgnoreCase);
+            return !string.IsNullOrWhiteSpace(value) &&
+                   !value.Trim().Equals("Not found", StringComparison.OrdinalIgnoreCase);
         }
     }
 }
