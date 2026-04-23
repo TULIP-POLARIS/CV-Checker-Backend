@@ -37,11 +37,6 @@ public sealed class CVController : ControllerBase
         _runner = runner;
     }
 
-    /// <summary>
-    /// POST /api/cv/upload
-    /// multipart/form-data fields:
-    /// file, backgroundText, jobTitle, jobDescription, company, requirements, location
-    /// </summary>
     [HttpPost("upload")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> Upload([FromForm] UploadCvRequest request)
@@ -552,17 +547,166 @@ public sealed class CVController : ControllerBase
 
         try
         {
-            return JsonSerializer.Deserialize<CVExtractionResult>(
-                latestCv.Content,
-                new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
+            return ParseExtractionResultFlexibly(latestCv.Content);
         }
-        catch (JsonException)
+        catch
         {
             return null;
         }
+    }
+
+    private static CVExtractionResult ParseExtractionResultFlexibly(string json)
+    {
+        var result = new CVExtractionResult
+        {
+            Skills = new List<string>(),
+            Languages = new List<string>(),
+            Education = new List<EducationItem>(),
+            WorkExperience = new List<WorkExperienceItem>()
+        };
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        result.FullName = GetString(root, "FullName");
+        result.Email = GetString(root, "Email");
+        result.Phone = GetString(root, "Phone");
+        result.Location = GetString(root, "Location");
+        result.ProfessionalSummary = GetString(root, "ProfessionalSummary");
+        result.RawExtractedText = GetString(root, "RawExtractedText");
+        result.Error = GetString(root, "Error");
+
+        result.Skills = GetStringList(root, "Skills");
+        result.Languages = GetStringList(root, "Languages");
+        result.Education = GetEducationList(root, "Education");
+        result.WorkExperience = GetWorkExperienceList(root, "WorkExperience");
+
+        return result;
+    }
+
+    private static string GetString(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var prop))
+            return string.Empty;
+
+        return prop.ValueKind == JsonValueKind.String
+            ? prop.GetString() ?? string.Empty
+            : string.Empty;
+    }
+
+    private static List<string> GetStringList(JsonElement root, string propertyName)
+    {
+        var result = new List<string>();
+
+        if (!root.TryGetProperty(propertyName, out var prop))
+            return result;
+
+        if (prop.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in prop.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                {
+                    var value = item.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(value))
+                        result.Add(value);
+                }
+            }
+        }
+        else if (prop.ValueKind == JsonValueKind.String)
+        {
+            var raw = prop.GetString() ?? string.Empty;
+
+            foreach (var part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!string.IsNullOrWhiteSpace(part))
+                    result.Add(part);
+            }
+        }
+
+        return result;
+    }
+
+    private static List<EducationItem> GetEducationList(JsonElement root, string propertyName)
+    {
+        var result = new List<EducationItem>();
+
+        if (!root.TryGetProperty(propertyName, out var prop))
+            return result;
+
+        if (prop.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in prop.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                result.Add(new EducationItem
+                {
+                    Institution = GetString(item, "Institution"),
+                    Degree = GetString(item, "Degree"),
+                    StartDate = GetString(item, "StartDate"),
+                    EndDate = GetString(item, "EndDate"),
+                    Description = GetString(item, "Description"),
+                    Raw = GetString(item, "Raw")
+                });
+            }
+        }
+        else if (prop.ValueKind == JsonValueKind.String)
+        {
+            var raw = prop.GetString();
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                result.Add(new EducationItem
+                {
+                    Raw = raw,
+                    Description = raw
+                });
+            }
+        }
+
+        return result;
+    }
+
+    private static List<WorkExperienceItem> GetWorkExperienceList(JsonElement root, string propertyName)
+    {
+        var result = new List<WorkExperienceItem>();
+
+        if (!root.TryGetProperty(propertyName, out var prop))
+            return result;
+
+        if (prop.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in prop.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                result.Add(new WorkExperienceItem
+                {
+                    Role = GetString(item, "Role"),
+                    Company = GetString(item, "Company"),
+                    StartDate = GetString(item, "StartDate"),
+                    EndDate = GetString(item, "EndDate"),
+                    Description = GetString(item, "Description"),
+                    Raw = GetString(item, "Raw")
+                });
+            }
+        }
+        else if (prop.ValueKind == JsonValueKind.String)
+        {
+            var raw = prop.GetString();
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                result.Add(new WorkExperienceItem
+                {
+                    Raw = raw,
+                    Description = raw
+                });
+            }
+        }
+
+        return result;
     }
 
     private async Task FillProfileFromExtractionAsync(Guid userId, CVExtractionResult extraction)
@@ -818,18 +962,25 @@ public sealed class CVController : ControllerBase
         if (pdfBytes == null || pdfBytes.Length == 0)
             return string.Empty;
 
-        using var stream = new MemoryStream(pdfBytes);
-        using var document = PdfDocument.Open(stream);
-        var textBuilder = new StringBuilder();
-
-        foreach (var page in document.GetPages())
+        try
         {
-            var pageText = page.Text;
-            if (!string.IsNullOrWhiteSpace(pageText))
-                textBuilder.AppendLine(pageText);
-        }
+            using var stream = new MemoryStream(pdfBytes);
+            using var document = PdfDocument.Open(stream);
+            var textBuilder = new StringBuilder();
 
-        return textBuilder.ToString().Trim();
+            foreach (var page in document.GetPages())
+            {
+                var pageText = page.Text;
+                if (!string.IsNullOrWhiteSpace(pageText))
+                    textBuilder.AppendLine(pageText);
+            }
+
+            return textBuilder.ToString().Trim();
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private static CVExtractionResult BuildFallbackExtractionFromText(string extractedText, string originalError)
