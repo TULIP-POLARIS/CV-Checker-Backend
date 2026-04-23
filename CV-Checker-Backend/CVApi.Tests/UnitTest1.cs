@@ -6,9 +6,9 @@ using CVApi.Controllers;
 using DAL.Api;
 using Domain.Entities;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
 using System.Text;
@@ -20,7 +20,6 @@ public class CVControllerTests
     [Fact]
     public async Task GetGeneratedStats_ReturnsDailyStatsGroupedByDate()
     {
-        // Arrange
         var dbOptions = new DbContextOptionsBuilder<ApiContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
@@ -50,10 +49,8 @@ public class CVControllerTests
 
         var controller = new CVController(new FakeCvService(), new FakeJobOfferService(), db, new CVExtractionRunner());
 
-        // Act
         var action = await controller.GetGeneratedStats();
 
-        // Assert
         var ok = Assert.IsType<OkObjectResult>(action);
         var dailyStatsObj = ok.Value!.GetType().GetProperty("dailyStats")!.GetValue(ok.Value)!;
         var entries = ((IEnumerable<object>)dailyStatsObj).ToList();
@@ -71,7 +68,6 @@ public class CVControllerTests
     [Fact]
     public async Task GetGeneratedStats_ReturnsEmptyDailyStats_WhenNoRowsExist()
     {
-        // Arrange
         var dbOptions = new DbContextOptionsBuilder<ApiContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
@@ -80,13 +76,12 @@ public class CVControllerTests
 
         var controller = new CVController(new FakeCvService(), new FakeJobOfferService(), db, new CVExtractionRunner());
 
-        // Act
         var action = await controller.GetGeneratedStats();
 
-        // Assert
         var ok = Assert.IsType<OkObjectResult>(action);
         var dailyStatsObj = ok.Value!.GetType().GetProperty("dailyStats")!.GetValue(ok.Value)!;
         var entries = ((IEnumerable<object>)dailyStatsObj).ToList();
+
         Assert.Empty(entries);
     }
 
@@ -97,6 +92,7 @@ public class CVControllerTests
         var dbOptions = new DbContextOptionsBuilder<ApiContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
+
         await using var db = new ApiContext(dbOptions);
 
         db.PersonalInfos.Add(new PersonalInfo
@@ -109,6 +105,7 @@ public class CVControllerTests
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         });
+
         db.Skills.Add(new Skill
         {
             Id = Guid.NewGuid(),
@@ -118,24 +115,34 @@ public class CVControllerTests
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         });
+
         db.CVs.Add(new CV
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            Content = "{\"FullName\":\"AI Name\",\"Phone\":\"999\",\"Skills\":\"Python, SQL\"}",
+            Content = "{\"FullName\":\"AI Name\",\"Phone\":\"999\",\"Skills\":[\"Python\",\"SQL\"]}",
             CreatedAt = DateTime.UtcNow
         });
+
         await db.SaveChangesAsync();
 
         var controller = BuildCvController(db, userId);
-        var action = await controller.Generate(new CVController.GenerateBody { JobTitle = "Backend", JobDescription = "Build APIs" });
+        var action = await controller.Generate(new CVController.GenerateBody
+        {
+            JobTitle = "Backend",
+            JobDescription = "Build APIs"
+        });
 
         var ok = Assert.IsType<OkObjectResult>(action);
         var generatedCv = ok.Value!.GetType().GetProperty("generatedCv")!.GetValue(ok.Value)!;
         var sections = generatedCv.GetType().GetProperty("sections")!.GetValue(generatedCv)!;
         var profile = sections.GetType().GetProperty("profile")!.GetValue(sections)!;
         var skillsObj = sections.GetType().GetProperty("skills")!.GetValue(sections)!;
-        var firstSkill = ((IEnumerable<object>)skillsObj).First();
+        var skillsList = ((IEnumerable<object>)skillsObj).ToList();
+
+        Assert.NotEmpty(skillsList);
+
+        var firstSkill = skillsList.First();
 
         Assert.Equal("Profile User", profile.GetType().GetProperty("fullName")!.GetValue(profile)!.ToString());
         Assert.Equal("111-111", profile.GetType().GetProperty("phoneNumber")!.GetValue(profile)!.ToString());
@@ -150,26 +157,36 @@ public class CVControllerTests
         var dbOptions = new DbContextOptionsBuilder<ApiContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
+
         await using var db = new ApiContext(dbOptions);
 
         db.CVs.Add(new CV
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            Content = "{\"FullName\":\"AI Name\",\"Phone\":\"999\",\"Skills\":\"Python, SQL\",\"WorkExperience\":\"AI Work\",\"Education\":\"AI Edu\"}",
+            Content = "{\"FullName\":\"AI Name\",\"Phone\":\"999\",\"Skills\":[\"Python\",\"SQL\"],\"WorkExperience\":\"AI Work\",\"Education\":\"AI Edu\"}",
             CreatedAt = DateTime.UtcNow
         });
+
         await db.SaveChangesAsync();
 
         var controller = BuildCvController(db, userId);
-        var action = await controller.Generate(new CVController.GenerateBody { JobTitle = "Backend", JobDescription = "Build APIs" });
+        var action = await controller.Generate(new CVController.GenerateBody
+        {
+            JobTitle = "Backend",
+            JobDescription = "Build APIs"
+        });
 
         var ok = Assert.IsType<OkObjectResult>(action);
         var generatedCv = ok.Value!.GetType().GetProperty("generatedCv")!.GetValue(ok.Value)!;
         var sections = generatedCv.GetType().GetProperty("sections")!.GetValue(generatedCv)!;
         var profile = sections.GetType().GetProperty("profile")!.GetValue(sections)!;
         var skillsObj = sections.GetType().GetProperty("skills")!.GetValue(sections)!;
-        var firstSkill = ((IEnumerable<object>)skillsObj).First();
+        var skillsList = ((IEnumerable<object>)skillsObj).ToList();
+
+        Assert.NotEmpty(skillsList);
+
+        var firstSkill = skillsList.First();
 
         Assert.Equal("AI Name", profile.GetType().GetProperty("fullName")!.GetValue(profile)!.ToString());
         Assert.Equal("999", profile.GetType().GetProperty("phoneNumber")!.GetValue(profile)!.ToString());
@@ -184,6 +201,7 @@ public class CVControllerTests
         var dbOptions = new DbContextOptionsBuilder<ApiContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
+
         await using var db = new ApiContext(dbOptions);
 
         db.PersonalInfos.Add(new PersonalInfo
@@ -195,25 +213,38 @@ public class CVControllerTests
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         });
+
         db.CVs.Add(new CV
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            Content = "{\"FullName\":\"AI Name\",\"Phone\":\"999\",\"Skills\":\"Python, SQL\"}",
+            Content = "{\"FullName\":\"AI Name\",\"Phone\":\"999\",\"Skills\":[\"Python\",\"SQL\"]}",
             CreatedAt = DateTime.UtcNow
         });
+
         await db.SaveChangesAsync();
 
         var controller = BuildCvController(db, userId);
-        var action = await controller.Generate(new CVController.GenerateBody { JobTitle = "Backend", JobDescription = "Build APIs" });
+        var action = await controller.Generate(new CVController.GenerateBody
+        {
+            JobTitle = "Backend",
+            JobDescription = "Build APIs"
+        });
 
         var ok = Assert.IsType<OkObjectResult>(action);
         var generatedCv = ok.Value!.GetType().GetProperty("generatedCv")!.GetValue(ok.Value)!;
         var sections = generatedCv.GetType().GetProperty("sections")!.GetValue(generatedCv)!;
         var profile = sections.GetType().GetProperty("profile")!.GetValue(sections)!;
+        var skillsObj = sections.GetType().GetProperty("skills")!.GetValue(sections)!;
+        var skillsList = ((IEnumerable<object>)skillsObj).ToList();
+
+        Assert.NotEmpty(skillsList);
+
+        var firstSkill = skillsList.First();
 
         Assert.Equal("AI Name", profile.GetType().GetProperty("fullName")!.GetValue(profile)!.ToString());
         Assert.Equal("999", profile.GetType().GetProperty("phoneNumber")!.GetValue(profile)!.ToString());
+        Assert.Equal("Python", firstSkill.GetType().GetProperty("name")!.GetValue(firstSkill)!.ToString());
         Assert.Equal("ai-fallback", profile.GetType().GetProperty("source")!.GetValue(profile)!.ToString());
     }
 
@@ -239,7 +270,6 @@ public class CVComparisonControllerTests
     [Fact]
     public async Task CompareCVAutoWithCvAndJobOffer_ReturnsBadRequest_WhenUserIdMissing()
     {
-        // Arrange
         var controller = new CVComparisonController(
             new FakeComparisonService(),
             new FakeCvService(),
@@ -253,19 +283,17 @@ public class CVComparisonControllerTests
             Description = "Build APIs"
         };
 
-        // Act
         var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
 
-        // Assert
         var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
         var message = bad.Value!.GetType().GetProperty("message")!.GetValue(bad.Value)?.ToString();
+
         Assert.Equal("UserId is required.", message);
     }
 
     [Fact]
     public async Task CompareCVAutoWithCvAndJobOffer_ReturnsBadRequest_WhenCvFileMissing()
     {
-        // Arrange
         var controller = new CVComparisonController(
             new FakeComparisonService(),
             new FakeCvService(),
@@ -279,19 +307,17 @@ public class CVComparisonControllerTests
             Description = "Build APIs"
         };
 
-        // Act
         var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
 
-        // Assert
         var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
         var message = bad.Value!.GetType().GetProperty("message")!.GetValue(bad.Value)?.ToString();
+
         Assert.Equal("CVFile is required.", message);
     }
 
     [Fact]
     public async Task CompareCVAutoWithCvAndJobOffer_ReturnsBadRequest_WhenFileIsNotPdf()
     {
-        // Arrange
         var controller = new CVComparisonController(
             new FakeComparisonService(),
             new FakeCvService(),
@@ -312,19 +338,17 @@ public class CVComparisonControllerTests
             Description = "Build APIs"
         };
 
-        // Act
         var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
 
-        // Assert
         var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
         var message = bad.Value!.GetType().GetProperty("message")!.GetValue(bad.Value)?.ToString();
+
         Assert.Equal("Only PDF files are allowed.", message);
     }
 
     [Fact]
     public async Task CompareCVAutoWithCvAndJobOffer_ReturnsBadRequest_WhenTitleMissing()
     {
-        // Arrange
         var controller = new CVComparisonController(
             new FakeComparisonService(),
             new FakeCvService(),
@@ -338,19 +362,17 @@ public class CVComparisonControllerTests
             Description = "Build APIs"
         };
 
-        // Act
         var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
 
-        // Assert
         var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
         var message = bad.Value!.GetType().GetProperty("message")!.GetValue(bad.Value)?.ToString();
+
         Assert.Equal("Job offer title is required.", message);
     }
 
     [Fact]
     public async Task CompareCVAutoWithCvAndJobOffer_ReturnsBadRequest_WhenDescriptionMissing()
     {
-        // Arrange
         var controller = new CVComparisonController(
             new FakeComparisonService(),
             new FakeCvService(),
@@ -364,19 +386,17 @@ public class CVComparisonControllerTests
             Description = ""
         };
 
-        // Act
         var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
 
-        // Assert
         var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
         var message = bad.Value!.GetType().GetProperty("message")!.GetValue(bad.Value)?.ToString();
+
         Assert.Equal("Job offer description is required.", message);
     }
 
     [Fact]
     public async Task CompareCVAutoWithCvAndJobOffer_ReturnsOk_WhenValidUploadIsProvided()
     {
-        // Arrange
         var controller = new CVComparisonController(
             new FakeComparisonService(),
             new FakeCvService(),
@@ -393,10 +413,8 @@ public class CVComparisonControllerTests
             Location = "Finland"
         };
 
-        // Act
         var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
 
-        // Assert
         var ok = Assert.IsType<OkObjectResult>(action.Result);
         Assert.NotNull(ok.Value);
     }
@@ -404,7 +422,6 @@ public class CVComparisonControllerTests
     [Fact]
     public async Task GetComparisonsByUserPost_ReturnsOk()
     {
-        // Arrange
         var controller = new CVComparisonController(
             new FakeComparisonService(),
             new FakeCvService(),
@@ -412,10 +429,8 @@ public class CVComparisonControllerTests
 
         var userId = Guid.NewGuid();
 
-        // Act
         var action = await controller.GetComparisonsByUserPost(userId);
 
-        // Assert
         var ok = Assert.IsType<OkObjectResult>(action.Result);
         Assert.NotNull(ok.Value);
     }
@@ -474,6 +489,7 @@ public class AuthControllerTests
 
         var ok = Assert.IsType<OkObjectResult>(action);
         var userExists = (bool)(ok.Value!.GetType().GetProperty("userExists")!.GetValue(ok.Value)!);
+
         Assert.True(userExists);
     }
 
@@ -487,6 +503,7 @@ public class AuthControllerTests
 
         var notFound = Assert.IsType<NotFoundObjectResult>(action);
         var userExists = (bool)(notFound.Value!.GetType().GetProperty("userExists")!.GetValue(notFound.Value)!);
+
         Assert.False(userExists);
     }
 
@@ -500,6 +517,7 @@ public class AuthControllerTests
             Email = "existing@test.com",
             PasswordHash = "old-hash"
         };
+
         db.Users.Add(seededUser);
         await db.SaveChangesAsync();
 
@@ -510,6 +528,7 @@ public class AuthControllerTests
         });
 
         Assert.IsType<OkObjectResult>(action);
+
         var updatedUser = await db.Users.FirstAsync(u => u.Email == "existing@test.com");
         Assert.NotEqual("old-hash", updatedUser.PasswordHash);
 
@@ -558,9 +577,14 @@ public class AuthControllerTests
 internal sealed class FakeCvService : ICVService
 {
     public Task<CV?> GetByIdAsync(Guid id) => Task.FromResult<CV?>(null);
-    public Task<IEnumerable<CV>> GetByUserIdAsync(Guid userId) => Task.FromResult<IEnumerable<CV>>(Array.Empty<CV>());
+
+    public Task<IEnumerable<CV>> GetByUserIdAsync(Guid userId) =>
+        Task.FromResult<IEnumerable<CV>>(Array.Empty<CV>());
+
     public Task<CV> CreateCVAsync(CV cv) => Task.FromResult(cv);
+
     public Task<CV> UpdateCVAsync(CV cv) => Task.FromResult(cv);
+
     public Task<bool> DeleteCVAsync(Guid id) => Task.FromResult(true);
 }
 
@@ -595,8 +619,13 @@ internal sealed class FakeComparisonService : ICVComparisonService
 internal sealed class FakeJobOfferService : IJobOfferService
 {
     public Task<JobOffer?> GetByIdAsync(Guid id) => Task.FromResult<JobOffer?>(null);
-    public Task<IEnumerable<JobOffer>> GetAllAsync() => Task.FromResult<IEnumerable<JobOffer>>(Array.Empty<JobOffer>());
+
+    public Task<IEnumerable<JobOffer>> GetAllAsync() =>
+        Task.FromResult<IEnumerable<JobOffer>>(Array.Empty<JobOffer>());
+
     public Task<JobOffer> CreateJobOfferAsync(JobOffer jobOffer) => Task.FromResult(jobOffer);
+
     public Task<JobOffer> UpdateJobOfferAsync(JobOffer jobOffer) => Task.FromResult(jobOffer);
+
     public Task<bool> DeleteJobOfferAsync(Guid id) => Task.FromResult(true);
 }
