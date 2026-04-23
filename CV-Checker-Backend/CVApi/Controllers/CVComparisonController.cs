@@ -5,6 +5,7 @@ using BusinessLogic.DTOs;
 using System.Text.RegularExpressions;
 using System.Text;
 using UglyToad.PdfPig;
+using Microsoft.AspNetCore.Http;
 
 namespace CVApi.Controllers
 {
@@ -13,13 +14,19 @@ namespace CVApi.Controllers
     public class CVComparisonController : ControllerBase
     {
         private const long MaxPdfSizeBytes = 10 * 1024 * 1024;
+
         private readonly ICVComparisonService _comparisonService;
         private readonly ICVService _cvService;
+        private readonly IJobOfferService _jobOfferService;
 
-        public CVComparisonController(ICVComparisonService comparisonService, ICVService cvService)
+        public CVComparisonController(
+            ICVComparisonService comparisonService,
+            ICVService cvService,
+            IJobOfferService jobOfferService)
         {
             _comparisonService = comparisonService;
             _cvService = cvService;
+            _jobOfferService = jobOfferService;
         }
 
         // POST /api/compare-cv
@@ -51,7 +58,11 @@ namespace CVApi.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "An error occurred while creating the comparison.", error = ex.Message });
+                return StatusCode(500, new
+                {
+                    message = "An error occurred while creating the comparison.",
+                    error = ex.Message
+                });
             }
         }
 
@@ -70,64 +81,93 @@ namespace CVApi.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "An error occurred while auto-comparing the CV.", error = ex.Message });
+                return StatusCode(500, new
+                {
+                    message = "An error occurred while auto-comparing the CV.",
+                    error = ex.Message
+                });
             }
         }
 
         // POST /api/compare-cv/auto-upload
+        // multipart/form-data:
+        // - UserId
+        // - CVFile
+        // - Title
+        // - Company
+        // - Description
+        // - Requirements
+        // - Location
         [HttpPost("auto-upload")]
         [Consumes("multipart/form-data")]
-        public async Task<ActionResult<object>> CompareCVAutoWithCv([FromForm] CreateAutoCVComparisonFormDTO form)
+        public async Task<ActionResult<object>> CompareCVAutoWithCvAndJobOffer([FromForm] CreateAutoCVComparisonUploadDTO form)
         {
             try
             {
-                if (form.JobOfferId == Guid.Empty)
-                    return BadRequest(new { message = "JobOfferId is required." });
-
                 if (form.UserId == Guid.Empty)
                     return BadRequest(new { message = "UserId is required." });
 
-                var cvId = form.CVId;
-                if (form.CVFile != null)
+                if (form.CVFile == null)
+                    return BadRequest(new { message = "CVFile is required." });
+
+                if (form.CVFile.Length == 0)
+                    return BadRequest(new { message = "CV file is empty." });
+
+                if (form.CVFile.Length > MaxPdfSizeBytes)
+                    return BadRequest(new { message = "PDF too large. Max allowed size is 10MB." });
+
+                var extension = Path.GetExtension(form.CVFile.FileName);
+                if (!string.Equals(extension, ".pdf", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(new { message = "Only PDF files are allowed." });
+
+                if (string.IsNullOrWhiteSpace(form.Title))
+                    return BadRequest(new { message = "Job offer title is required." });
+
+                if (string.IsNullOrWhiteSpace(form.Description))
+                    return BadRequest(new { message = "Job offer description is required." });
+
+                // 1) Save CV
+                await using var ms = new MemoryStream();
+                await form.CVFile.CopyToAsync(ms);
+                var fileBytes = ms.ToArray();
+                var extractedText = ExtractTextFromPdf(fileBytes);
+
+                var cv = new CV
                 {
-                    if (form.CVFile.Length == 0)
-                        return BadRequest(new { message = "CV file is empty." });
+                    Id = Guid.NewGuid(),
+                    UserId = form.UserId,
+                    FileName = form.CVFile.FileName,
+                    FileData = fileBytes,
+                    ContentType = string.IsNullOrWhiteSpace(form.CVFile.ContentType)
+                        ? "application/pdf"
+                        : form.CVFile.ContentType,
+                    FileSizeBytes = form.CVFile.Length,
+                    Content = extractedText,
+                    CreatedAt = DateTime.UtcNow
+                };
 
-                    if (form.CVFile.Length > MaxPdfSizeBytes)
-                        return BadRequest(new { message = "PDF too large. Max allowed size is 10MB." });
+                var createdCv = await _cvService.CreateCVAsync(cv);
 
-                    var extension = Path.GetExtension(form.CVFile.FileName);
-                    if (!string.Equals(extension, ".pdf", StringComparison.OrdinalIgnoreCase))
-                        return BadRequest(new { message = "Only PDF files are allowed." });
+                // 2) Save JobOffer
+                var jobOffer = new JobOffer
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = form.UserId,
+                    Title = form.Title,
+                    Company = form.Company,
+                    Description = form.Description,
+                    Requirements = form.Requirements,
+                    Location = form.Location,
+                    CreatedAt = DateTime.UtcNow
+                };
 
-                    await using var ms = new MemoryStream();
-                    await form.CVFile.CopyToAsync(ms);
-                    var fileBytes = ms.ToArray();
-                    var extractedText = ExtractTextFromPdf(fileBytes);
+                var createdJobOffer = await _jobOfferService.CreateJobOfferAsync(jobOffer);
 
-                    var cv = new CV
-                    {
-                        Id = Guid.NewGuid(),
-                        UserId = form.UserId,
-                        FileName = form.CVFile.FileName,
-                        FileData = fileBytes,
-                        ContentType = string.IsNullOrWhiteSpace(form.CVFile.ContentType) ? "application/pdf" : form.CVFile.ContentType,
-                        FileSizeBytes = form.CVFile.Length,
-                        Content = extractedText,
-                        CreatedAt = DateTime.UtcNow
-                    };
-
-                    var createdCv = await _cvService.CreateCVAsync(cv);
-                    cvId = createdCv.Id;
-                }
-
-                if (cvId == Guid.Empty)
-                    return BadRequest(new { message = "Provide either CVId or CVFile." });
-
+                // 3) Compare using newly created ids
                 var dto = new CreateAutoCVComparisonDTO
                 {
-                    CVId = cvId,
-                    JobOfferId = form.JobOfferId,
+                    CVId = createdCv.Id,
+                    JobOfferId = createdJobOffer.Id,
                     UserId = form.UserId
                 };
 
@@ -140,7 +180,11 @@ namespace CVApi.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "An error occurred while auto-comparing the CV.", error = ex.Message });
+                return StatusCode(500, new
+                {
+                    message = "An error occurred while auto-comparing the CV.",
+                    error = ex.Message
+                });
             }
         }
 
@@ -151,15 +195,19 @@ namespace CVApi.Controllers
             try
             {
                 var comparison = await _comparisonService.GetByIdAsync(id);
+
                 if (comparison == null)
-                {
                     return NotFound(new { message = "Comparison not found." });
-                }
+
                 return Ok(comparison);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "An error occurred while retrieving the comparison.", error = ex.Message });
+                return StatusCode(500, new
+                {
+                    message = "An error occurred while retrieving the comparison.",
+                    error = ex.Message
+                });
             }
         }
 
@@ -174,7 +222,30 @@ namespace CVApi.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "An error occurred while retrieving comparisons.", error = ex.Message });
+                return StatusCode(500, new
+                {
+                    message = "An error occurred while retrieving comparisons.",
+                    error = ex.Message
+                });
+            }
+        }
+
+        // POST /api/compare-cv/user/{userId}
+        [HttpPost("user/{userId}")]
+        public async Task<ActionResult<IEnumerable<CVComparison>>> GetComparisonsByUserPost(Guid userId)
+        {
+            try
+            {
+                var comparisons = await _comparisonService.GetByUserIdAsync(userId);
+                return Ok(comparisons);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "An error occurred while retrieving comparisons.",
+                    error = ex.Message
+                });
             }
         }
 
@@ -184,6 +255,7 @@ namespace CVApi.Controllers
                 return new List<string>();
 
             var normalized = source.Trim();
+
             if (normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 normalized = normalized[prefix.Length..].Trim();
 
@@ -236,6 +308,7 @@ namespace CVApi.Controllers
             var matchMessage = isMatch
                 ? $"Match found ({score}%)."
                 : $"Not a strong match yet ({score}%).";
+
             var matchedKeywords = ExtractKeywordList(result.Strengths, "Matched keywords:");
             var missingKeywords = ExtractKeywordList(result.Weaknesses, "Missing keywords:");
             var improvementSuggestions = BuildImprovementSuggestions(score, missingKeywords);
@@ -283,11 +356,15 @@ namespace CVApi.Controllers
         }
     }
 
-    public class CreateAutoCVComparisonFormDTO
+    public class CreateAutoCVComparisonUploadDTO
     {
-        public Guid CVId { get; set; }
-        public Guid JobOfferId { get; set; }
         public Guid UserId { get; set; }
         public IFormFile? CVFile { get; set; }
+
+        public string Title { get; set; } = string.Empty;
+        public string? Company { get; set; }
+        public string Description { get; set; } = string.Empty;
+        public string? Requirements { get; set; }
+        public string? Location { get; set; }
     }
 }
