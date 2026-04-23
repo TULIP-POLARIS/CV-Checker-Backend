@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
+using System.Text;
 
 namespace CVApi.Tests;
 
@@ -236,62 +237,24 @@ public class CVControllerTests
 public class CVComparisonControllerTests
 {
     [Fact]
-    public async Task CompareCVAutoWithCv_ReturnsBadRequest_WhenCvIdAndCvFileAreMissing()
+    public async Task CompareCVAutoWithCvAndJobOffer_ReturnsBadRequest_WhenUserIdMissing()
     {
         // Arrange
-        var controller = new CVComparisonController(new FakeComparisonService(), new FakeCvService());
-        var request = new CreateAutoCVComparisonFormDTO
+        var controller = new CVComparisonController(
+            new FakeComparisonService(),
+            new FakeCvService(),
+            new FakeJobOfferService());
+
+        var request = new CreateAutoCVComparisonUploadDTO
         {
-            CVId = Guid.Empty,
-            JobOfferId = Guid.NewGuid(),
-            UserId = Guid.NewGuid(),
-            CVFile = null
+            UserId = Guid.Empty,
+            CVFile = BuildPdfFile("cv.pdf"),
+            Title = "Backend Developer",
+            Description = "Build APIs"
         };
 
         // Act
-        var action = await controller.CompareCVAutoWithCv(request);
-
-        // Assert
-        var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
-        var message = bad.Value!.GetType().GetProperty("message")!.GetValue(bad.Value)?.ToString();
-        Assert.Equal("Provide either CVId or CVFile.", message);
-    }
-
-    [Fact]
-    public async Task CompareCVAutoWithCv_ReturnsBadRequest_WhenJobOfferIdMissing()
-    {
-        // Arrange
-        var controller = new CVComparisonController(new FakeComparisonService(), new FakeCvService());
-        var request = new CreateAutoCVComparisonFormDTO
-        {
-            CVId = Guid.NewGuid(),
-            JobOfferId = Guid.Empty,
-            UserId = Guid.NewGuid()
-        };
-
-        // Act
-        var action = await controller.CompareCVAutoWithCv(request);
-
-        // Assert
-        var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
-        var message = bad.Value!.GetType().GetProperty("message")!.GetValue(bad.Value)?.ToString();
-        Assert.Equal("JobOfferId is required.", message);
-    }
-
-    [Fact]
-    public async Task CompareCVAutoWithCv_ReturnsBadRequest_WhenUserIdMissing()
-    {
-        // Arrange
-        var controller = new CVComparisonController(new FakeComparisonService(), new FakeCvService());
-        var request = new CreateAutoCVComparisonFormDTO
-        {
-            CVId = Guid.NewGuid(),
-            JobOfferId = Guid.NewGuid(),
-            UserId = Guid.Empty
-        };
-
-        // Act
-        var action = await controller.CompareCVAutoWithCv(request);
+        var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
 
         // Assert
         var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
@@ -300,26 +263,57 @@ public class CVComparisonControllerTests
     }
 
     [Fact]
-    public async Task CompareCVAutoWithCv_ReturnsBadRequest_WhenFileIsNotPdf()
+    public async Task CompareCVAutoWithCvAndJobOffer_ReturnsBadRequest_WhenCvFileMissing()
     {
         // Arrange
-        var controller = new CVComparisonController(new FakeComparisonService(), new FakeCvService());
+        var controller = new CVComparisonController(
+            new FakeComparisonService(),
+            new FakeCvService(),
+            new FakeJobOfferService());
+
+        var request = new CreateAutoCVComparisonUploadDTO
+        {
+            UserId = Guid.NewGuid(),
+            CVFile = null,
+            Title = "Backend Developer",
+            Description = "Build APIs"
+        };
+
+        // Act
+        var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
+
+        // Assert
+        var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
+        var message = bad.Value!.GetType().GetProperty("message")!.GetValue(bad.Value)?.ToString();
+        Assert.Equal("CVFile is required.", message);
+    }
+
+    [Fact]
+    public async Task CompareCVAutoWithCvAndJobOffer_ReturnsBadRequest_WhenFileIsNotPdf()
+    {
+        // Arrange
+        var controller = new CVComparisonController(
+            new FakeComparisonService(),
+            new FakeCvService(),
+            new FakeJobOfferService());
+
         await using var stream = new MemoryStream(new byte[] { 1, 2, 3, 4 });
         var file = new FormFile(stream, 0, stream.Length, "cvFile", "cv.txt")
         {
             Headers = new HeaderDictionary(),
             ContentType = "text/plain"
         };
-        var request = new CreateAutoCVComparisonFormDTO
+
+        var request = new CreateAutoCVComparisonUploadDTO
         {
-            CVId = Guid.Empty,
-            JobOfferId = Guid.NewGuid(),
             UserId = Guid.NewGuid(),
-            CVFile = file
+            CVFile = file,
+            Title = "Backend Developer",
+            Description = "Build APIs"
         };
 
         // Act
-        var action = await controller.CompareCVAutoWithCv(request);
+        var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
 
         // Assert
         var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
@@ -328,23 +322,136 @@ public class CVComparisonControllerTests
     }
 
     [Fact]
-    public async Task CompareCVAutoWithCv_ReturnsOk_WhenCvIdIsProvided()
+    public async Task CompareCVAutoWithCvAndJobOffer_ReturnsBadRequest_WhenTitleMissing()
     {
         // Arrange
-        var controller = new CVComparisonController(new FakeComparisonService(), new FakeCvService());
-        var request = new CreateAutoCVComparisonFormDTO
+        var controller = new CVComparisonController(
+            new FakeComparisonService(),
+            new FakeCvService(),
+            new FakeJobOfferService());
+
+        var request = new CreateAutoCVComparisonUploadDTO
         {
-            CVId = Guid.NewGuid(),
-            JobOfferId = Guid.NewGuid(),
-            UserId = Guid.NewGuid()
+            UserId = Guid.NewGuid(),
+            CVFile = BuildPdfFile("cv.pdf"),
+            Title = "",
+            Description = "Build APIs"
         };
 
         // Act
-        var action = await controller.CompareCVAutoWithCv(request);
+        var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
+
+        // Assert
+        var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
+        var message = bad.Value!.GetType().GetProperty("message")!.GetValue(bad.Value)?.ToString();
+        Assert.Equal("Job offer title is required.", message);
+    }
+
+    [Fact]
+    public async Task CompareCVAutoWithCvAndJobOffer_ReturnsBadRequest_WhenDescriptionMissing()
+    {
+        // Arrange
+        var controller = new CVComparisonController(
+            new FakeComparisonService(),
+            new FakeCvService(),
+            new FakeJobOfferService());
+
+        var request = new CreateAutoCVComparisonUploadDTO
+        {
+            UserId = Guid.NewGuid(),
+            CVFile = BuildPdfFile("cv.pdf"),
+            Title = "Backend Developer",
+            Description = ""
+        };
+
+        // Act
+        var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
+
+        // Assert
+        var bad = Assert.IsType<BadRequestObjectResult>(action.Result);
+        var message = bad.Value!.GetType().GetProperty("message")!.GetValue(bad.Value)?.ToString();
+        Assert.Equal("Job offer description is required.", message);
+    }
+
+    [Fact]
+    public async Task CompareCVAutoWithCvAndJobOffer_ReturnsOk_WhenValidUploadIsProvided()
+    {
+        // Arrange
+        var controller = new CVComparisonController(
+            new FakeComparisonService(),
+            new FakeCvService(),
+            new FakeJobOfferService());
+
+        var request = new CreateAutoCVComparisonUploadDTO
+        {
+            UserId = Guid.NewGuid(),
+            CVFile = BuildPdfFile("cv.pdf"),
+            Title = "Backend Developer",
+            Company = "Test Company",
+            Description = "Build APIs",
+            Requirements = "C#, ASP.NET Core, SQL",
+            Location = "Finland"
+        };
+
+        // Act
+        var action = await controller.CompareCVAutoWithCvAndJobOffer(request);
 
         // Assert
         var ok = Assert.IsType<OkObjectResult>(action.Result);
         Assert.NotNull(ok.Value);
+    }
+
+    [Fact]
+    public async Task GetComparisonsByUserPost_ReturnsOk()
+    {
+        // Arrange
+        var controller = new CVComparisonController(
+            new FakeComparisonService(),
+            new FakeCvService(),
+            new FakeJobOfferService());
+
+        var userId = Guid.NewGuid();
+
+        // Act
+        var action = await controller.GetComparisonsByUserPost(userId);
+
+        // Assert
+        var ok = Assert.IsType<OkObjectResult>(action.Result);
+        Assert.NotNull(ok.Value);
+    }
+
+    private static IFormFile BuildPdfFile(string fileName)
+    {
+        var pdfBytes = Encoding.UTF8.GetBytes(
+@"%PDF-1.1
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] >>
+endobj
+xref
+0 4
+0000000000 65535 f 
+0000000010 00000 n 
+0000000060 00000 n 
+0000000117 00000 n 
+trailer
+<< /Root 1 0 R /Size 4 >>
+startxref
+178
+%%EOF");
+
+        var stream = new MemoryStream(pdfBytes);
+
+        return new FormFile(stream, 0, stream.Length, "CVFile", fileName)
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf"
+        };
     }
 }
 
@@ -460,8 +567,13 @@ internal sealed class FakeCvService : ICVService
 internal sealed class FakeComparisonService : ICVComparisonService
 {
     public Task<CVComparison?> GetByIdAsync(Guid id) => Task.FromResult<CVComparison?>(null);
-    public Task<IEnumerable<CVComparison>> GetByUserIdAsync(Guid userId) => Task.FromResult<IEnumerable<CVComparison>>(Array.Empty<CVComparison>());
-    public Task<CVComparison> CreateCVComparisonAsync(CVComparison comparison) => Task.FromResult(comparison);
+
+    public Task<IEnumerable<CVComparison>> GetByUserIdAsync(Guid userId) =>
+        Task.FromResult<IEnumerable<CVComparison>>(Array.Empty<CVComparison>());
+
+    public Task<CVComparison> CreateCVComparisonAsync(CVComparison comparison) =>
+        Task.FromResult(comparison);
+
     public Task<CVComparison> CreateAutoCVComparisonAsync(CreateAutoCVComparisonDTO dto)
     {
         return Task.FromResult(new CVComparison
@@ -471,6 +583,10 @@ internal sealed class FakeComparisonService : ICVComparisonService
             JobOfferId = dto.JobOfferId,
             UserId = dto.UserId,
             MatchScore = 70,
+            Strengths = "Matched keywords: C#, ASP.NET Core",
+            Weaknesses = "Missing keywords: Azure",
+            Suggestions = "Add more cloud experience",
+            AnalysisResult = "Good match",
             CreatedAt = DateTime.UtcNow
         });
     }
