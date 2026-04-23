@@ -104,11 +104,10 @@ public sealed class CVController : ControllerBase
 
             var savedCv = await _cvService.CreateCVAsync(cv);
 
-            if (extractionToPersist != null && string.IsNullOrWhiteSpace(extractionToPersist.Error))
+            if (extractionToPersist != null && HasUsefulExtractionData(extractionToPersist))
             {
                 await FillProfileFromExtractionAsync(userId.Value, extractionToPersist);
             }
-
             CvBackground? savedBackground = null;
             if (!string.IsNullOrWhiteSpace(request.BackgroundText))
             {
@@ -1077,6 +1076,28 @@ public sealed class CVController : ControllerBase
             return false;
 
         return !string.Equals(value.Trim(), "Not found", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasUsefulExtractionData(CVExtractionResult extraction)
+    {
+        if (extraction == null)
+            return false;
+
+        return IsMeaningfulExtractionValue(extraction.FullName)
+            || IsMeaningfulExtractionValue(extraction.Phone)
+            || IsMeaningfulExtractionValue(extraction.Location)
+            || (extraction.Skills?.Any(IsMeaningfulExtractionValue) ?? false)
+            || (extraction.Languages?.Any(IsMeaningfulExtractionValue) ?? false)
+            || (extraction.Education?.Any(e =>
+                IsMeaningfulExtractionValue(e.Institution) ||
+                IsMeaningfulExtractionValue(e.Degree) ||
+                IsMeaningfulExtractionValue(e.Description) ||
+                IsMeaningfulExtractionValue(e.Raw)) ?? false)
+            || (extraction.WorkExperience?.Any(w =>
+                IsMeaningfulExtractionValue(w.Role) ||
+                IsMeaningfulExtractionValue(w.Company) ||
+                IsMeaningfulExtractionValue(w.Description) ||
+                IsMeaningfulExtractionValue(w.Raw)) ?? false);
     }
 }
 
